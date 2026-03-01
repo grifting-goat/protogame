@@ -1,5 +1,7 @@
 #include "level.h"
 
+
+
 bool level_create(Level* level, uint32_t tick_rate) {
     if (!level) return false;
     
@@ -9,6 +11,7 @@ bool level_create(Level* level, uint32_t tick_rate) {
     level->fps_time_accum = 0;
     level->frame_count = 0;
     level->initialized = true;
+    
     
     return true;
 }

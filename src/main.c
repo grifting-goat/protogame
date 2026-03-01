@@ -9,8 +9,8 @@ int main(void){
 
     srand((unsigned int)time(NULL));
 
-    Client client;
-    Server server;
+    Client client = {0};
+    Server server = {0};
 
     client_startup(&client);
     server_startup(&server);

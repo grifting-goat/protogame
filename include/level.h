@@ -6,6 +6,13 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
+#include "input.h"
+#include "entity.h"
+#include "player.h"
+#include "camera.h"
+#include "help.h"
+
+
 typedef struct {
     uint32_t tick_rate;
 

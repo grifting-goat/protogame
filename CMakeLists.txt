@@ -6,6 +6,9 @@ project(protogame LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# Force synchronous PDB writes for parallel compilation
+add_compile_options(/FS)
+
 # Export compile commands for IntelliSense
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
