@@ -14,10 +14,7 @@
 #endif
 
 // Creates a simple ground plane
-static inline Model temp_create_plane(VkDevice device,
-                        VkPhysicalDevice physical_device,
-                        VkCommandPool cmd_pool,
-                        VkQueue graphics_queue) 
+static inline Model temp_create_plane(void)
 {
     Vertex ground_vertices[] = {
         {{-50.0f, 0.0f, -50.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
@@ -31,31 +28,21 @@ static inline Model temp_create_plane(VkDevice device,
     model_create(&ground,
                  ground_vertices, 4,
                  ground_indices, 6,
-                 "grass.jpg",
-                 device, physical_device,
-                 cmd_pool, graphics_queue);
+                 "grass.jpg");
 
     return ground;
 }
 
-// Creates a sphere mesh
-static inline Model temp_create_sphere(int sectorCount, int stackCount, float radius,
-                         VkDevice device,
-                         VkPhysicalDevice physical_device,
-                         VkCommandPool cmd_pool,
-                         VkQueue graphics_queue) 
-{
+static inline Model temp_create_sphere(int sectorCount, int stackCount, float radius) {
     int vertex_count = (sectorCount + 1) * (stackCount + 1);
     int index_count = sectorCount * stackCount * 6;
-    Vertex* vertices = (Vertex*)malloc(sizeof(Vertex) * vertex_count);
-    uint32_t* indices = (uint32_t*)malloc(sizeof(uint32_t) * index_count);
-
+    Vertex* vertices = malloc(sizeof(Vertex) * vertex_count);
+    uint32_t* indices = malloc(sizeof(uint32_t) * index_count);
     int v = 0;
     for (int i = 0; i <= stackCount; ++i) {
         float stackAngle = M_PI / 2 - i * (M_PI / stackCount);
         float xy = radius * cosf(stackAngle);
         float z = radius * sinf(stackAngle);
-
         for (int j = 0; j <= sectorCount; ++j) {
             float sectorAngle = j * (2 * M_PI / sectorCount);
             float x = xy * cosf(sectorAngle);
@@ -65,7 +52,6 @@ static inline Model temp_create_sphere(int sectorCount, int stackCount, float ra
             float nz = z / radius;
             float s = (float)j / sectorCount;
             float t = (float)i / stackCount;
-
             vertices[v].position[0] = x;
             vertices[v].position[1] = y;
             vertices[v].position[2] = z;
@@ -77,7 +63,6 @@ static inline Model temp_create_sphere(int sectorCount, int stackCount, float ra
             v++;
         }
     }
-
     int idx = 0;
     for (int i = 0; i < stackCount; ++i) {
         for (int j = 0; j < sectorCount; ++j) {
@@ -93,23 +78,14 @@ static inline Model temp_create_sphere(int sectorCount, int stackCount, float ra
     }
 
     Model sphere;
-    model_create(&sphere,
-                 vertices, vertex_count,
-                 indices, index_count,
-                 "sand.jpg",
-                 device, physical_device,
-                 cmd_pool, graphics_queue);
-
+    model_create(&sphere, vertices, vertex_count, indices, index_count, "sand.jpg");
     free(vertices);
     free(indices);
     return sphere;
 }
 
 // Creates a pyramid mesh
-static inline Model temp_create_pyramid(VkDevice device,
-                          VkPhysicalDevice physical_device,
-                          VkCommandPool cmd_pool,
-                          VkQueue graphics_queue) 
+static inline Model temp_create_pyramid(void)
 {
     Vertex pyramid_vertices[] = {
         {{-0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
@@ -129,18 +105,13 @@ static inline Model temp_create_pyramid(VkDevice device,
     model_create(&pyramid,
                  pyramid_vertices, 5,
                  pyramid_indices, 12,
-                 "mystical.png",
-                 device, physical_device,
-                 cmd_pool, graphics_queue);
+                 "mystical.png");
 
     return pyramid;
 }
 
 // Creates a cube mesh
-static inline Model temp_create_cube(VkDevice device,
-                       VkPhysicalDevice physical_device,
-                       VkCommandPool cmd_pool,
-                       VkQueue graphics_queue) 
+static inline Model temp_create_cube(void)
 {
     Vertex cube_vertices[] = {
         {{-0.5f, -0.5f, -0.5f}, { 0.0f,  0.0f, -1.0f}, {0.0f, 0.0f}},
@@ -182,9 +153,7 @@ static inline Model temp_create_cube(VkDevice device,
     model_create(&cube,
                  cube_vertices, 24,
                  cube_indices, 36,
-                 "golf.jpeg",
-                 device, physical_device,
-                 cmd_pool, graphics_queue);
+                 "golf.jpeg");
 
     return cube;
 }

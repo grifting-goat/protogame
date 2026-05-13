@@ -1,12 +1,12 @@
-#ifndef EERIE_WINDOW_H
-#define EERIE_WINDOW_H
+#ifndef WINDOW_H
+#define WINDOW_H
 
-#include <SDL3/SDL.h>
 #include <stdbool.h>
-#include <SDL3/SDL_vulkan.h>
+#include <SDL3/SDL.h>
 
 typedef struct {
     SDL_Window* window;
+    SDL_GLContext gl_context;
     int width;
     int height;
     bool fullscreen;
@@ -20,8 +20,10 @@ void window_set_icon(Window* win, const char* icon_path);
 
 void window_toggle_fullscreen(Window* win);
 
+void window_swap_buffers(Window* win);
+
 void window_destroy(Window* win);
 
 void window_quit(void);
 
-#endif // EERIE_WINDOW_H
+#endif // WINDOW_H

@@ -3,10 +3,19 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include "enet.h"
 #include "level.h"
+#include "packet.h"
+
+#define MAX_CLIENTS 32
+
+extern const char* server_tag;
 
 typedef struct {
     Level level;
+
+    ENetAddress address;
+    ENetHost* e_server;
 } Server;
 
 bool server_startup(Server* server);

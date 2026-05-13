@@ -1,15 +1,28 @@
 #include "server.h"
+#include "stb_ds.h"
 
+const char* server_tag = "Server: ";
+
+
+void server_enet_poll(Server* s);
+bool server_enet_startup(Server* server);
 
 bool server_startup(Server* server){
     if (!server) return false;
-    level_create(&server->level, 128);
-    printf("server started...\n");
-    return 1;
+    if (!level_create(&server->level, 128)) return false;
+    server->level.server = true;
+
+    if (!server_enet_startup(server)) return false;
+
+
+    printf("%sserver started...\n", server_tag);
+    return true;
 }
 
 bool server_run(Server* server) {
     if (!server) return false;
+
+    static Uint64 send_time_accum = 0;
 
     //timing
     Uint64 now = SDL_GetPerformanceCounter();
@@ -17,24 +30,162 @@ bool server_run(Server* server) {
     float dt = (float)frame_ticks / (float)server->level.perf_freq;
     server->level.last_time = now;
 
-
+    
     server->level.fps_time_accum += frame_ticks;
     server->level.frame_count++;
         if (server->level.fps_time_accum >= server->level.perf_freq) {
             double fps = (double)server->level.frame_count * (double)server->level.perf_freq / (double)server->level.fps_time_accum;
-            printf("Passes:%d\r", server->level.frame_count);
+            printf("%sPasses:%d\r", server_tag, server->level.frame_count);
             fflush(stdout);
             server->level.fps_time_accum = 0;
             server->level.frame_count = 0;
         }
-
+    
+    server_enet_poll(server);
     level_update(&server->level, dt);
+    
+
+    send_time_accum += frame_ticks;
+    const Uint64 send_interval = server->level.perf_freq / 64;
+    while (send_time_accum >= send_interval) {
+
+        for (int i = 0; i < hmlen(server->level.player_map); i++) {
+            Packet_pos payload = {PCKT_SERVER_POS, server->level.player_map[i].key, server->level.player_map[i].value.entity.position};
+            ENetPacket* packet = enet_packet_create(
+                &payload,
+                sizeof(payload),
+                ENET_PACKET_FLAG_RELIABLE
+            );
+            enet_host_broadcast(server->e_server, 0, packet);
+        }
+
+        send_time_accum -= send_interval;
+    }
 
     return true;
 }
 
+
+bool server_enet_startup(Server* server) {
+    if (enet_initialize () != 0) {
+        printf("%sAn error occurred while initializing ENet.\n", server_tag);
+        return false;
+    }
+
+    ENetAddress address = {0};
+    server->address = address;
+
+    address.host = ENET_HOST_ANY; /* Bind the server to the default localhost*/
+    address.port = 7777; /* Bind the server to port 7777. */
+
+    server->e_server = enet_host_create(&address, MAX_CLIENTS, 2, 0, 0);
+
+    if (server->e_server == NULL) {
+        printf("%sAn error occurred while trying to create an ENet server host.\n", server_tag);
+        return false;
+    }
+
+    printf("%sStarted an enet server...\n", server_tag);
+    return true;
+
+}
+
+void server_enet_poll(Server* s) {
+    if (!s || !s->e_server) return;
+
+    ENetEvent event;
+    while (enet_host_service(s->e_server, &event, 0) > 0) {
+        switch (event.type) {
+            case ENET_EVENT_TYPE_CONNECT:
+                {
+                    char ip[64] = {0};
+                    if (enet_address_get_host_ip(&event.peer->address, ip, sizeof(ip)) == 0) {
+                        printf("%sClient connected: %s:%u\n", server_tag, ip, event.peer->address.port);
+                    } else {
+                        printf("%sClient connected: <unknown>:%u\n", server_tag, event.peer->address.port);
+                    }
+
+                    uint8_t assigned_id = (uint8_t)event.peer->incomingPeerID;
+                    uint8_t pack[2] = {PCKT_SERVER_ID, assigned_id};
+                    ENetPacket* packet = enet_packet_create(
+                        pack,
+                        2,
+                        ENET_PACKET_FLAG_RELIABLE
+                    );
+                    enet_peer_send(event.peer, 0, packet);
+
+                    
+                }
+                break;
+
+            case ENET_EVENT_TYPE_RECEIVE:
+                if (event.packet && event.packet->dataLength >= 1) {
+                    const uint8_t* data = (const uint8_t*)event.packet->data;
+                    const uint8_t packet_type = data[0];
+
+                    if (packet_type == PCKT_CLIENT_ACK && event.packet->dataLength == sizeof(Packet_client_ack)) {
+                        const Packet_client_ack* pos = (const Packet_client_ack*)event.packet->data;
+
+                        for (int i = 0; i < hmlen(s->level.player_map); i++) {
+                            Packet_new_player existing = {
+                                PCKT_ADD_PLAYER,
+                                s->level.player_map[i].key,
+                                s->level.player_map[i].value.unqid
+                            };
+                            ENetPacket* existing_packet = enet_packet_create(
+                                &existing,
+                                sizeof(existing),
+                                ENET_PACKET_FLAG_RELIABLE
+                            );
+                            if (existing_packet) {
+                                enet_peer_send(event.peer, 0, existing_packet);
+                            }
+                        }
+
+                        level_add_player(&s->level, pos->uqid, pos->server_id);
+
+                        //send to all connected clients
+                        Packet_new_player payload = {PCKT_ADD_PLAYER, pos->server_id, pos->uqid};
+                        ENetPacket* packet = enet_packet_create(
+                            &payload,
+                            sizeof(payload),
+                            ENET_PACKET_FLAG_RELIABLE
+                        );
+                        if (packet) {
+                            enet_host_broadcast(s->e_server, 0, packet);
+                        }
+                    }
+
+                    if (packet_type == PCKT_CLIENT_POS && event.packet->dataLength == sizeof(Packet_pos)) {
+                        const Packet_pos* pos = (const Packet_pos*)event.packet->data;
+                        int idx = hmgeti(s->level.player_map, pos->server_id);
+                        if (idx != -1) {
+                            s->level.player_map[idx].value.entity.position = pos->pos;
+                        }
+                    }
+
+                }
+                enet_packet_destroy(event.packet);
+                break;
+
+            case ENET_EVENT_TYPE_DISCONNECT:
+                printf("%sClient disconnected.\n", server_tag);
+                break;
+
+            default:
+                break;
+        }
+    }
+}
+
+
 void server_close(Server* server) {
     if (!server) return;
     level_destroy(&server->level);
-    printf("\nserver closed!\n");
+
+    enet_host_destroy(server->e_server);
+    enet_deinitialize();
+
+    printf("\n%sserver closed!\n", server_tag);
 }
+

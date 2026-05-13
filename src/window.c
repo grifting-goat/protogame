@@ -14,11 +14,11 @@ bool window_create(Window* win, const char* title, int width, int height, bool f
     win->height = height;
     win->fullscreen = fullscreen;
     
-    //defenestration
+    //create window with OpenGL support
     win->window = SDL_CreateWindow(
         title,
         width, height,
-        SDL_WINDOW_VULKAN
+        SDL_WINDOW_OPENGL
     );
     
     if (!win->window) {
@@ -29,6 +29,15 @@ bool window_create(Window* win, const char* title, int width, int height, bool f
     if (fullscreen) {
         SDL_SetWindowFullscreen(win->window, true);
     }
+    
+    //Create OpenGL context
+    win->gl_context = SDL_GL_CreateContext(win->window);
+    if (!win->gl_context) {
+        SDL_Log("Could not create OpenGL context: %s", SDL_GetError());
+        SDL_DestroyWindow(win->window);
+        return false;
+    }
+    
     
     return true;
 }
@@ -50,8 +59,19 @@ void window_toggle_fullscreen(Window* win) {
     SDL_SetWindowFullscreen(win->window, win->fullscreen);
 }
 
+void window_swap_buffers(Window* win) {
+    if (!win || !win->window) return;
+    
+    SDL_GL_SwapWindow(win->window);
+}
+
 void window_destroy(Window* win) {
     if (!win) return;
+    
+    if (win->gl_context) {
+        SDL_GL_DestroyContext(win->gl_context);
+        win->gl_context = NULL;
+    }
     
     if (win->window) {
         SDL_DestroyWindow(win->window);

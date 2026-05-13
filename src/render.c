@@ -1,66 +1,86 @@
 #include "render.h"
 
-void render_frame(Client *client) {
-    vkQueueWaitIdle(client->graphics_queue);
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
-    /* Acquire next swapchain image */
-    uint32_t imageIndex;
-    VkResult result = vkAcquireNextImageKHR(client->device, client->swap_chain, UINT64_MAX,
-                                             client->present_complete_semaphore, VK_NULL_HANDLE, &imageIndex);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to acquire swapchain image: %d\n", result);
-        exit(EXIT_FAILURE);
+
+void render_entity(Entity* ent, Shader* shader, Vec3 color) {
+    Model* model = &ent->model;
+    if (model->mesh.texture != 0) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, model->mesh.texture);
+        shader_set_int(shader, "texSampler", 0); // set sampler2D uniform to 0
+        shader_set_int(shader, "useTexture", 1);
+    } else {
+        shader_set_int(shader, "useTexture", 0);
+    }
+    
+    Mat4 offset = mat4_translate(vec3_add(&model->offset, &ent->position));
+    Mat4 scale = mat4_scale(model->scale);
+    Mat4 new_model = mat4_multiply(scale, offset);
+    shader_set_mat4(shader, "model", &new_model);
+    shader_set_vec3(shader, "objectColor", &color);
+    model_draw(model);
+
+}
+
+void render_model(Model* model, Vec3 pos, Shader* shader, Vec3 color) {
+    if (model->mesh.texture != 0) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, model->mesh.texture);
+        shader_set_int(shader, "texSampler", 0); // set sampler2D uniform to 0
+        shader_set_int(shader, "useTexture", 1);
+    } else {
+        shader_set_int(shader, "useTexture", 0);
+    }
+    
+    Mat4 offset = mat4_translate(vec3_add(&model->offset, &pos));
+    Mat4 scale = mat4_scale(model->scale);
+    Mat4 new_model = mat4_multiply(scale, offset);
+    shader_set_mat4(shader, "model", &new_model);
+    shader_set_vec3(shader, "objectColor", &color);
+    model_draw(model);
+
+}
+
+GLuint load_texture(const char* filename) {
+    static TexCacheEntry cache[TEX_CACHE_SIZE];
+    static int cache_count = 0;
+
+    // Check cache
+    for (int i = 0; i < cache_count; ++i) {
+        if (strcmp(cache[i].path, filename) == 0) {
+            return cache[i].tex;
+        }
     }
 
-    recordCommandBuffer(client, imageIndex);
 
-    /* Reset fence and submit */
-    vkResetFences(client->device, 1, &client->draw_fence);
+    int width, height, channels;
+    stbi_set_flip_vertically_on_load(1);
+    unsigned char* data = stbi_load(filename, &width, &height, &channels, 0);
+    if (!data) {printf("\n Texture failed to load: %s\n", filename); return 0;}
 
-    VkPipelineStageFlags waitDestinationStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
+                 channels == 4 ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
 
-    VkSubmitInfo submitInfo = {
-        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .pNext                = NULL,
-        .waitSemaphoreCount   = 1,
-        .pWaitSemaphores      = &client->present_complete_semaphore,
-        .pWaitDstStageMask    = &waitDestinationStageMask,
-        .commandBufferCount   = 1,
-        .pCommandBuffers      = &client->command_buffer,
-        .signalSemaphoreCount = 1,
-        .pSignalSemaphores    = &client->render_finished_semaphore
-    };
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    vkQueueSubmit(client->graphics_queue, 1, &submitInfo, client->draw_fence);
+    stbi_image_free(data);
 
-    result = vkWaitForFences(client->device, 1, &client->draw_fence, VK_TRUE, UINT64_MAX);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to wait for fence: %d\n", result);
-        exit(EXIT_FAILURE);
+    // Add to cache if space
+    if (cache_count < TEX_CACHE_SIZE) {
+        strncpy(cache[cache_count].path, filename, 255);
+        cache[cache_count].path[255] = '\0';
+        cache[cache_count].tex = tex;
+        ++cache_count;
     }
 
-    /* Present */
-    VkPresentInfoKHR presentInfo = {
-        .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .pNext              = NULL,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores    = &client->render_finished_semaphore,
-        .swapchainCount     = 1,
-        .pSwapchains        = &client->swap_chain,
-        .pImageIndices      = &imageIndex
-    };
-
-    result = vkQueuePresentKHR(client->graphics_queue, &presentInfo);
-    switch (result)
-    {
-        case VK_SUCCESS:
-            break;
-        case VK_SUBOPTIMAL_KHR:
-            fprintf(stderr, "vkQueuePresentKHR returned VK_SUBOPTIMAL_KHR\n");
-            break;
-        default:
-            break;
-    }
+    return tex;
 }

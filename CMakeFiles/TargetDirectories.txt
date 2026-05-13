@@ -1,0 +1,3 @@
+C:/Users/onewi/grifting-goat/protogame/CMakeFiles/protogame.dir
+C:/Users/onewi/grifting-goat/protogame/CMakeFiles/ALL_BUILD.dir
+C:/Users/onewi/grifting-goat/protogame/CMakeFiles/ZERO_CHECK.dir

@@ -16,10 +16,7 @@ typedef struct Entity {
     Vec3 acceleration;
     float mass;
 
-    Entity* relative_ent;
-
-    bool locked;
-    bool on_ground;
+    float health;
 } Entity;
 
 void entity_create_default(Entity *ent);

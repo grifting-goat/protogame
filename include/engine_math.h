@@ -1,5 +1,5 @@
-#ifndef EERIE_ENGINE_MATH_H
-#define EERIE_ENGINE_MATH_H
+#ifndef ENGINE_MATH_H
+#define ENGINE_MATH_H
 
 #include <stdint.h>
 #include <math.h>
@@ -84,4 +84,4 @@ Mat4 mat4_scale(Vec3 scale);
 Mat4 mat4_perspective(float fov, float aspect, float near, float far);
 Mat4 mat4_look_at(Vec3 eye, Vec3 center, Vec3 up);
 
-#endif // EERIE_ENGINE_MATH_H
+#endif //ENGINE_MATH_H
