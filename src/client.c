@@ -9,13 +9,13 @@ void client_render(Client *client);
 Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera);
 
 bool client_enet_startup(Client* client);
-bool client_enet_connect(Client* client);
+bool client_enet_connect(Client* client, const char* host);
 void client_enet_poll(Client* client);
 
 
-bool client_startup(Client *client)
+bool client_startup(Client *client, const char* host)
 {
-    if (!client)
+    if (!client || !host)
         return false;
 
     if (!level_create(&client->level, 128))
@@ -60,7 +60,7 @@ bool client_startup(Client *client)
     if (!client_enet_startup(client))
         return false;
 
-    if (!client_enet_connect(client))
+    if (!client_enet_connect(client, host))
         return false;
 
     return true;
@@ -217,8 +217,8 @@ bool client_enet_startup(Client* client) {
     return true;
 }
 
-bool client_enet_connect(Client* client) {
-    const char* host = "127.0.0.1";
+bool client_enet_connect(Client* client, const char* host) {
+    if (!host) host = "127.0.0.1";
     const enet_uint16 port = 7777;
 
     if (enet_address_set_host(&client->address, host) != 0) {

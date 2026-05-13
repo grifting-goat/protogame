@@ -21,7 +21,7 @@ typedef struct {
 
     uint64_t unique_id;
     uint8_t server_id;
-    
+
     ENetHost* e_client;
     ENetPeer* server_peer;
     ENetAddress address;
@@ -31,7 +31,7 @@ typedef struct {
 
 } Client;
 
-bool client_startup(Client* client);
+bool client_startup(Client* client, const char* host);
 
 bool client_run(Client* client);
 

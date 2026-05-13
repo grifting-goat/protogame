@@ -12,6 +12,8 @@
 #include "client.h"
 #include "server.h"
 
+char* host = "127.0.0.1";
+
 int main(int argc, char* argv[]){
 
     bool s = true;
@@ -20,9 +22,13 @@ int main(int argc, char* argv[]){
     if (argc > 1) {
         if (strcmp(argv[1], "s") == 0) {
             c = false;
+
         }
         else if (strcmp(argv[1], "c") == 0) {
             s = false;
+            if (argc > 2) {
+                host = argv[2];
+            }
         }
     }
 
@@ -36,7 +42,7 @@ int main(int argc, char* argv[]){
     }
 
     if (c) {
-        client_startup(&client);
+        client_startup(&client, host);
     }
 
 
