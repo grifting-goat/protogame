@@ -14,12 +14,13 @@ typedef struct Entity {
     Vec3 position;
     Vec3 velocity;
     Vec3 acceleration;
+    float radius;
     float mass;
 
-    Entity* relative_ent;
+    float health;
 
-    bool locked;
-    bool on_ground;
+    uint32_t states; //controls all states through 1s hot and macros
+
 } Entity;
 
 void entity_create_default(Entity *ent);

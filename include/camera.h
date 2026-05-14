@@ -1,8 +1,9 @@
-#ifndef EERIE_CAMERA_H
-#define EERIE_CAMERA_H
+#ifndef CAMERA_H
+#define CAMERA_H
 
 #include <stdint.h>
 #include "engine_math.h"
+#include "shader.h"
 
 typedef struct {
     Vec3* position; //so you can attach it to things
@@ -15,6 +16,8 @@ typedef struct {
 
     bool mode; // 1st : 3rd
     Vec3 offset_vector;
+
+    Shader shader;
     
 } Camera;
 
@@ -36,4 +39,4 @@ Vec3 camera_up(const Camera* cam);   //up if we want to do funny stuff
 
 
 
-#endif //EERIE_CAMERA_H
+#endif //CAMERA_H

@@ -1,6 +1,9 @@
 #include "camera.h"
 
 
+bool load_shader(Camera* cam);
+
+
 void camera_init(Camera* cam) {
     static Vec3 default_position = {0.0f, 0.0f, 0.0f};
     if (!cam) return;
@@ -13,6 +16,8 @@ void camera_init(Camera* cam) {
     cam->far_plane = 250.0f;
     cam->mode = 1;
     cam->offset_vector = (Vec3){0.0f, 0.0f, 0.0f};
+
+    load_shader(cam);
 }
 
 void camera_attach(Camera* cam, Vec3* position_ptr, Vec3* offset) {
@@ -108,4 +113,14 @@ Mat4 camera_view_matrix(const Camera* cam) {
     
     return mat4_look_at(pos, target, up);
 }
+
+
+bool load_shader(Camera* cam) {
+    if (!shader_create_from_files(&cam->shader, "shaders/basic.vert", "shaders/basic.frag")) {
+        printf("Failed to create shader!\n");
+        return 0;
+    }
+    glEnable(GL_DEPTH_TEST);
+    return 1;
+}   
 

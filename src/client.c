@@ -1,1003 +1,412 @@
 #include "client.h"
-#include <stdio.h>
-#include <stdlib.h>
+#include <glad/glad.h>
 #include <string.h>
-#include <assert.h>
+#include <stdio.h>
+#include "packet.h"
+#include "stb_ds.h"
+#include "states.h"
 
-void vulkan_setup(Client* client);
-void createInstance(Client *client);
-void createSurface(Client *client);
-void pickPhysicalDevice(Client *client);
-void createLogicalDevice(Client *client);
-void createSwapChain(Client *client);
-void createImageViews(Client *client);
-void createGraphicsPipeline(Client *client);
-void createCommandPool(Client *client);
-void createCommandBuffer(Client *client);
-void createSyncObjects(Client *client);
-void cleanup(Client *client);
-uint32_t *readFile(const char *filename, size_t *fileSize);
+void client_render(Client *client);
+
+Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera);
+void client_input_test(Client* client, InputHandle *player_input, const Camera* player_camera);
+
+bool client_enet_startup(Client* client);
+bool client_enet_connect(Client* client, const char* host);
+void client_enet_poll(Client* client);
 
 
-bool client_startup(Client* client) {
-    if (!client) return false;
+bool client_startup(Client *client, const char* host)
+{
+    if (!client || !host)
+        return false;
 
-    level_create(&client->level, 128);
+    if (!level_create(&client->level, 128))
+        return false;
 
-    if (!window_init()) {return 0;}
+    if (!window_init())
+        return false;
 
-    if (!window_create(&client->win, "Proto Game", 1920, 1080, true)) {window_quit(); return 0;}
+    if (!window_create(&client->win, "Proto", 1920, 1080, true)) {
+        window_quit();
+        return false;
+    }
+
+    if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
+        window_destroy(&client->win);
+        window_quit();
+        return false;
+    }
+
     window_set_icon(&client->win, "icon.bmp");
 
     input_init(&client->player_input, &client->win);
 
-    
-    vulkan_setup(client);
+    Model ground = temp_create_plane();
+    level_add_model(&client->level, &ground);
 
-    /* Initialize player and camera */
-    client->player = player_create();
+    client->player = NULL;
+
     camera_init(&client->player_camera);
-    camera_attach(&client->player_camera, &client->player.entity.position, &client->player_camera.offset_vector);
-    
-    client->player.entity.model = temp_create_sphere(32, 16, 1.0f, client->device, client->physical_device, client->command_pool, client->graphics_queue);
-    client->player_camera.mode = !client->player_camera.mode;
-    client->player.entity.position.y = 0.0f;
-    
+    client->player_camera.mode = 0;
 
-    return 1;
+    client->unique_id = ((uint64_t)(uint32_t)rand() << 32) | (uint64_t)(uint32_t)rand();
+
+    if (!client_enet_startup(client))
+        return false;
+
+    if (!client_enet_connect(client, host))
+        return false;
+    
+    window_add_overlay(&client->win, "fps", "FPS: 0", 20, 20);
+
+    return true;
 }
 
+bool client_run(Client *client)
+{
+    if (!client)
+        return false;
 
-bool client_run(Client* client) {
+    static Uint64 send_time_accum = 0;
+    static Uint64 fps_ui_ticks_accum = 0;
+    static int fps_ui_frame_count = 0;
+
     SDL_Event event;
-    while (SDL_PollEvent(&event)) {if (event.type == SDL_EVENT_QUIT) {return 0;}}
+    while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_EVENT_QUIT)
+            return false;
+    }
 
-    //timing
     Uint64 now = SDL_GetPerformanceCounter();
     Uint64 frame_ticks = now - client->level.last_time;
     float dt = (float)frame_ticks / (float)client->level.perf_freq;
     client->level.last_time = now;
 
     dMouse delta_mouse = input_mouse(&client->player_input);
-    float dx = delta_mouse.x;
-    float dy = delta_mouse.y;
-    Uint32 mouse_buttons = delta_mouse.mb;
+    float mouse_sensitivity = 0.0007f;
 
-    uint32_t mouse_sensitivity = 0.07f;
+    client->player_camera.angles.x -= delta_mouse.x * mouse_sensitivity;
+    client->player_camera.angles.y -= delta_mouse.y * mouse_sensitivity;
 
-    client->player_camera.angles.x -= dx * mouse_sensitivity; // yaw
-    client->player_camera.angles.y -= dy * mouse_sensitivity; // pitch
+    if (client->player_camera.angles.y > 1.5f)
+        client->player_camera.angles.y = 1.5f;
+    if (client->player_camera.angles.y < -1.5f)
+        client->player_camera.angles.y = -1.5f;
 
-
-    // Clamp pitch to avoid flipping
-    if (client->player_camera.angles.y > 1.5f) client->player_camera.angles.y = 1.5f;
-    if (client->player_camera.angles.y < -1.5f) client->player_camera.angles.y = -1.5f;
-
-
-    //printing fps move to hud controler later
     client->level.fps_time_accum += frame_ticks;
     client->level.frame_count++;
-        if (client->level.fps_time_accum >= client->level.perf_freq) {
-            double fps = (double)client->level.frame_count * (double)client->level.perf_freq / (double)client->level.fps_time_accum;
-            client->level.fps_time_accum = 0;
-            client->level.frame_count = 0;
-        }
 
-    level_update(&client->level, dt);
+    fps_ui_ticks_accum += frame_ticks;
+    fps_ui_frame_count++;
+
+    if (fps_ui_ticks_accum >= (client->level.perf_freq / 4)) {
+        float seconds = (float)fps_ui_ticks_accum / (float)client->level.perf_freq;
+        float fps = seconds > 0.0f ? ((float)fps_ui_frame_count / seconds) : 0.0f;
+        char fps_text[64];
+        SDL_snprintf(fps_text, sizeof(fps_text), "FPS: %.0f", fps);
+        window_update_overlay(&client->win, "fps", fps_text);
+
+        fps_ui_ticks_accum = 0;
+        fps_ui_frame_count = 0;
+    }
     
 
-    //render_frame(client);
 
-    return 1;
+    if (client->level.fps_time_accum >= client->level.perf_freq) {
+        client->level.fps_time_accum = 0;
+        client->level.frame_count = 0;
+    }
+
+    send_time_accum += frame_ticks;
+    const Uint64 send_interval = client->level.perf_freq / 64;
+    while (client->enet_connected && client->player && send_time_accum >= send_interval) {
+        Packet_pos payload = {PCKT_CLIENT_POS, client->server_id, client->player->entity.position, client->player->entity.velocity};
+        ENetPacket* packet = enet_packet_create(
+            &payload,
+            sizeof(payload),
+            0
+        );
+        enet_peer_send(client->server_peer, 1, packet);
+        send_time_accum -= send_interval;
+    }
+    if (client->player) {
+        client->player->movement.cam_dir = camera_forward(&client->player_camera);
+        client_input_test(client, &client->player_input, &client->player_camera);
+    }
+
+
+    client_enet_poll(client);
+
+    if (!level_update(&client->level, dt))
+        return false;
+
+    client_render(client);
+    
+    return true;
 }
 
 
-void client_close(Client* client) {
-    if (!client) return;
+void client_render(Client *client) {
+    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    Shader* basic_shader = &client->player_camera.shader;
 
-    cleanup(client);
+    shader_use(basic_shader);    
+    Mat4 view = camera_view_matrix(&client->player_camera);
+    Mat4 projection = camera_projection_matrix(&client->player_camera);
+    shader_set_mat4(basic_shader, "view", &view);
+    shader_set_mat4(basic_shader, "projection", &projection);
 
-    for (uint32_t i = 0; i < client->swap_chain_image_count; ++i) {
-        vkDestroyImageView(client->device, client->swap_chain_image_views[i], NULL);
+    Vec3 white = {1.0f, 1.0f, 1.0f};
+
+    for (int i = 0; i < client->level.model_count; i++) {
+        Vec3 thing = {0.0f, -2.0f, 0.0f};
+        render_model(&client->level.models[i], thing, basic_shader, white);
     }
 
-    free(client->swap_chain_image_views);
+    for (int i = 0; i < hmlen(client->level.player_map); i++) {
+        if (client->level.player_map[i].key != client->server_id) {
+            render_entity(&client->level.player_map[i].value.entity, basic_shader, white);
+        }
+    }
+
+    for (int i = 0; i < hmlen(client->level.ent_map); i++) {
+        if (client->level.ent_map[i].key != client->server_id) {
+            render_entity(&client->level.ent_map[i].value, basic_shader, white);
+        }
+        
+    }
+
+    window_render_overlay(&client->win);
+    window_swap_buffers(&client->win);
+}
+
+Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) {
+    Vec3 dir = {0.0f, 0.0f, 0.0f};
+    if (player_input->kb_state[SDL_SCANCODE_W]) dir.z += 1.0f;
+    if (player_input->kb_state[SDL_SCANCODE_S]) dir.z -= 1.0f;
+    if (player_input->kb_state[SDL_SCANCODE_A]) dir.x += 1.0f;
+    if (player_input->kb_state[SDL_SCANCODE_D]) dir.x -= 1.0f;
+    
+    if (player_input->kb_state[SDL_SCANCODE_SPACE]) dir.y += 1.0f;
+    if (player_input->kb_state[SDL_SCANCODE_LCTRL]) dir.y -= 1.0f;
+
+    Vec3 forward = camera_forward(player_camera);
+    Vec3 right = camera_right(player_camera);
+
+    forward.y = 0.0f; right.y = 0.0f;
+    forward = vec3_normalize(&forward);
+    right = vec3_normalize(&right);
+
+    Vec3 move_dir = {
+        forward.x * dir.z + right.x * dir.x,
+        dir.y,
+        forward.z * dir.z + right.z * dir.x
+    };
+
+    move_dir = vec3_normalize(&move_dir);
+
+    return move_dir;
+}
+
+void client_input_test(Client* client, InputHandle *player_input, const Camera* player_camera) {
+    Vec3 dir = {0.0f, 0.0f, 0.0f};
+
+    if (player_input->kb_state[SDL_SCANCODE_W]) dir.z += 1.0f;
+    if (player_input->kb_state[SDL_SCANCODE_S]) dir.z -= 1.0f;
+    if (player_input->kb_state[SDL_SCANCODE_A]) dir.x += 1.0f;
+    if (player_input->kb_state[SDL_SCANCODE_D]) dir.x -= 1.0f;
+
+    player_input->kb_state[SDL_SCANCODE_LSHIFT] ? set_state(&client->player->entity, RUNNING) : clear_state(&client->player->entity, RUNNING);
+    
+    client->player->movement.jump_queued = player_input->kb_state[SDL_SCANCODE_SPACE];
+    client->player->movement.slide_queued = player_input->kb_state[SDL_SCANCODE_LCTRL];
 
 
-    vkDestroySemaphore(client->device, client->present_complete_semaphore, NULL);
-    vkDestroySemaphore(client->device, client->render_finished_semaphore, NULL);
-    vkDestroyFence(client->device, client->draw_fence, NULL);
+    Vec3 forward = camera_forward(player_camera);
+    Vec3 right = camera_right(player_camera);
 
+    forward.y = 0.0f; right.y = 0.0f;
+    forward = vec3_normalize(&forward);
+    right = vec3_normalize(&right);
+
+    Vec3 move_dir = {
+        forward.x * dir.z + right.x * dir.x,
+        0,
+        forward.z * dir.z + right.z * dir.x
+    };
+
+    move_dir = vec3_normalize(&move_dir);
+    client->player->movement.wish_dir = move_dir;
+}
+
+
+bool client_enet_startup(Client* client) {
+    if (enet_initialize() != 0) {
+        fprintf(stderr, "An error occurred while initializing ENet.\n");
+        return false;
+    }
+
+    ENetHost* e_client = { 0 };
+    e_client = enet_host_create(NULL /* create a client host */,
+        1 /* only allow 1 outgoing connection */,
+        2 /* allow up 2 channels to be used, 0 and 1 */,
+        0 /* assume any amount of incoming bandwidth */,
+        0 /* assume any amount of outgoing bandwidth */);
+    if (e_client == NULL) {
+        fprintf(stderr,
+        "An error occurred while trying to create an ENet client host.\n");
+        return false;
+    }
+    
+    client->e_client = e_client;
+    client->server_peer = NULL;
+    client->enet_connect_attempted = false;
+    client->enet_connected = false;
+    client->server_id = 0;
+
+    ENetAddress address = { 0 };
+    client->address = address;
+
+    return true;
+}
+
+bool client_enet_connect(Client* client, const char* host) {
+    if (!host) host = "127.0.0.1";
+    const enet_uint16 port = 7777;
+
+    if (enet_address_set_host(&client->address, host) != 0) {
+        fprintf(stderr, "Failed to resolve host '%s'.\n", host);
+        return false;
+    }
+    client->address.port = port;
+
+    client->server_peer = enet_host_connect(client->e_client, &client->address, 2, 0);
+    if (client->server_peer == NULL) {
+        fprintf(stderr, "No available peers for initiating an ENet connection.\n");
+        return false;
+    }
+
+    client->enet_connect_attempted = true;
+    printf("Connecting to %s:%u...\n", host, (unsigned)port);
+
+    return true;
+}
+
+void client_enet_poll(Client* client) {
+    if (!client || !client->e_client) return;
+
+    ENetEvent event;
+    while (enet_host_service(client->e_client, &event, 0) > 0) {
+        switch (event.type) {
+            case ENET_EVENT_TYPE_CONNECT:
+                client->enet_connected = true;
+                printf("Client ENet connected.\n");
+                break;
+            case ENET_EVENT_TYPE_RECEIVE:
+                if (event.packet && event.packet->dataLength >= 1) {
+                    const uint8_t* data = (const uint8_t*)event.packet->data;
+                    const uint8_t packet_type = data[0];
+
+                    if (packet_type == PCKT_SERVER_ID && event.packet->dataLength >= (1 + sizeof(uint32_t))) {
+                        const Packet_server_id* id_pack = (const Packet_server_id *)event.packet->data;
+                        client->server_id = id_pack->server_id;
+                        printf("Assigned server id: %u\n", (unsigned)client->server_id);
+
+                        level_add_player(&client->level, client->unique_id, client->server_id);
+                        int p = hmgeti(client->level.player_map, client->server_id);
+                        if (p != -1) {
+                            client->player = &client->level.player_map[p].value;
+                            camera_attach(
+                                &client->player_camera,
+                                &client->player->entity.position,
+                                &client->player->eye_offset);
+                        }
+
+                        Packet_client_ack ack = {
+                            PCKT_CLIENT_ACK,
+                            client->server_id,
+                            client->unique_id
+                        };
+                        ENetPacket* packet = enet_packet_create(
+                            &ack,
+                            sizeof(ack),
+                            ENET_PACKET_FLAG_RELIABLE
+                        );
+                        if (packet) {
+                            enet_peer_send(client->server_peer, 0, packet);
+                        }
+                    }
+
+                    if (packet_type == PCKT_SERVER_POS && event.packet->dataLength >= sizeof(Packet_pos)) {
+                        const Packet_pos* pos_pack = (const Packet_pos*)event.packet->data;
+                        if (pos_pack->server_id == client->server_id) {
+                            continue;
+                        }
+                        int idx = hmgeti(client->level.player_map, pos_pack->server_id);
+                        if (idx != -1) {
+                            client->level.player_map[idx].value.entity.position = pos_pack->pos;
+                            client->level.player_map[idx].value.entity.velocity = pos_pack->vel;
+                        }
+                    }
+
+                    if (packet_type == PCKT_ADD_PLAYER && event.packet->dataLength >= sizeof(Packet_player)) {
+                        const Packet_player* player_pack = (const Packet_player*)event.packet->data;
+                        if (hmgeti(client->level.player_map, player_pack->server_id) == -1) {
+                            level_add_player(&client->level, player_pack->uqid, player_pack->server_id);
+                        }
+                    }
+
+                    if (packet_type == PCKT_REMOVE_PLAYER && event.packet->dataLength >= sizeof(Packet_player)) {
+                        const Packet_player* player_pack = (const Packet_player*)event.packet->data;
+                        hmdel(client->level.player_map, player_pack->server_id);
+                    }
+                }
+
+                enet_packet_destroy(event.packet);
+                break;
+            case ENET_EVENT_TYPE_DISCONNECT:
+                client->enet_connected = false;
+                client->server_peer = NULL;
+                printf("Client ENet disconnected.\n");
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+
+void client_close(Client *client)
+{
+    if (!client)
+        return;
+
+    if (client->server_peer && client->e_client) {
+        enet_peer_disconnect(client->server_peer, 0);
+        ENetEvent event;
+        int attempts = 0;
+        while (attempts < 200 && enet_host_service(client->e_client, &event, 10) > 0) {
+            if (event.type == ENET_EVENT_TYPE_RECEIVE)
+                enet_packet_destroy(event.packet);
+            else if (event.type == ENET_EVENT_TYPE_DISCONNECT)
+                break;
+            attempts++;
+        }
+        enet_peer_reset(client->server_peer);
+        client->server_peer = NULL;
+    }
+
+    if (client->e_client) {
+        enet_host_destroy(client->e_client);
+        client->e_client = NULL;
+    }
+    enet_deinitialize();
 
     window_destroy(&client->win);
     window_quit();
     level_destroy(&client->level);
-}
 
-
-void vulkan_setup(Client* client) {
-     createInstance(client);
-     createSurface(client);
-     pickPhysicalDevice(client);
-     createLogicalDevice(client);
-     createSwapChain(client);
-     createImageViews(client);
-     createGraphicsPipeline(client);
-     createCommandPool(client);
-     createCommandBuffer(client);
-     createSyncObjects(client);
-}
-
-
-void createInstance(Client *client) {
-
-
-    VkApplicationInfo appInfo = {
-        .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pNext              = NULL,
-        .pApplicationName   = "Proto Game",
-        .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
-        .pEngineName        = "No Engine",
-        .engineVersion      = VK_MAKE_VERSION(1, 0, 0),
-        .apiVersion         = VK_API_VERSION_1_4
-    };
-
-    uint32_t sdlExtensionCount = 0;
-    const char * const *sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&sdlExtensionCount);
-
-    uint32_t extensionCount = 0;
-    vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, NULL);
-
-    VkExtensionProperties *extensionProperties = malloc(extensionCount * sizeof(VkExtensionProperties));
-    if (!extensionProperties)
-    {
-        fprintf(stderr, "Failed to allocate memory for extension properties\n");
-        exit(EXIT_FAILURE);
-    }
-    vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, extensionProperties);
-
-    for (uint32_t i = 0; i < sdlExtensionCount; ++i)
-    {
-        bool found = false;
-        for (uint32_t j = 0; j < extensionCount; ++j)
-        {
-            if (strcmp(extensionProperties[j].extensionName, sdlExtensions[i]) == 0)
-            {
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-        {
-            fprintf(stderr, "Required SDL extension not supported: %s\n", sdlExtensions[i]);
-            free(extensionProperties);
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    free(extensionProperties);
-
-    VkInstanceCreateInfo createInfo = {
-        .sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-        .pNext                   = NULL,
-        .flags                   = 0,
-        .pApplicationInfo        = &appInfo,
-        .enabledLayerCount       = 0,
-        .ppEnabledLayerNames     = NULL,
-        .enabledExtensionCount   = sdlExtensionCount,
-        .ppEnabledExtensionNames = sdlExtensions
-    };
-
-    VkResult result = vkCreateInstance(&createInfo, NULL, &client->instance);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to create Vulkan instance: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-
-}
-
-void createSurface(Client *client)
-{
-    if (!SDL_Vulkan_CreateSurface(client->win.window, client->instance, NULL, &client->surface))
-    {
-        fprintf(stderr, "Failed to create window surface: %s\n", SDL_GetError());
-        exit(EXIT_FAILURE);
-    }
-}
-
-bool isDeviceSuitable(VkPhysicalDevice physicalDevice) {
-
-    VkPhysicalDeviceProperties properties;
-    vkGetPhysicalDeviceProperties(physicalDevice, &properties);
-
-    /* Check Vulkan 1.3 support */
-    bool supportsVulkan1_3 = properties.apiVersion >= VK_API_VERSION_1_3;
-
-    /* Check if discrete*/
-    bool isDiscrete = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-
-    /* Check graphics queue family support */
-    uint32_t queueFamilyCount = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, NULL);
-
-    VkQueueFamilyProperties *queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
-    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies);
-
-    bool supportsGraphics = false;
-    for (uint32_t i = 0; i < queueFamilyCount; ++i)
-    {
-        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-        {
-            supportsGraphics = true;
-            break;
-        }
-    }
-    free(queueFamilies);
-
-    /* Check required device extensions */
-    uint32_t availableExtensionCount = 0;
-    vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &availableExtensionCount, NULL);
-
-    VkExtensionProperties *availableExtensions = malloc(availableExtensionCount * sizeof(VkExtensionProperties));
-    vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &availableExtensionCount, availableExtensions);
-
-    bool supportsAllRequiredExtensions = true;
-    for (uint32_t i = 0; i < requiredDeviceExtensionCount; ++i)
-    {
-        bool found = false;
-        for (uint32_t j = 0; j < availableExtensionCount; ++j)
-        {
-            if (strcmp(availableExtensions[j].extensionName, requiredDeviceExtensions[i]) == 0)
-            {
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-        {
-            supportsAllRequiredExtensions = false;
-            break;
-        }
-    }
-    free(availableExtensions);
-
-    /* Check required features via chained pNext structs */
-    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures = {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
-        .pNext = NULL
-    };
-    VkPhysicalDeviceVulkan13Features vulkan13Features = {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .pNext = &extendedDynamicStateFeatures
-    };
-    VkPhysicalDeviceFeatures2 features2 = {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &vulkan13Features
-    };
-    vkGetPhysicalDeviceFeatures2(physicalDevice, &features2);
-
-    bool supportsRequiredFeatures = vulkan13Features.dynamicRendering &&
-                                    extendedDynamicStateFeatures.extendedDynamicState;
-
-    return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
-}
-
-
-void pickPhysicalDevice(Client* client)
-{
-    uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(client->instance, &deviceCount, NULL);
-
-    if (deviceCount == 0)
-    {
-        fprintf(stderr, "Failed to find any GPU with Vulkan support!\n");
-        exit(EXIT_FAILURE);
-    }
-
-    VkPhysicalDevice *devices = malloc(deviceCount * sizeof(VkPhysicalDevice));
-    if (!devices)
-    {
-        fprintf(stderr, "Failed to allocate memory for physical devices\n");
-        exit(EXIT_FAILURE);
-    }
-    vkEnumeratePhysicalDevices(client->instance, &deviceCount, devices);
-
-    client->physical_device = VK_NULL_HANDLE;
-    for (uint32_t i = 0; i < deviceCount; ++i)
-    {
-        if (isDeviceSuitable(devices[i]))
-        {
-            client->physical_device = devices[i];
-            break;
-        }
-    }
-
-    free(devices);
-
-    if (client->physical_device == VK_NULL_HANDLE)
-    {
-        fprintf(stderr, "Failed to find a suitable GPU!\n");
-        exit(EXIT_FAILURE);
-    }
-}
-
-void createLogicalDevice(Client* client)
-{
-    /* Find first queue family that supports graphics */
-    uint32_t queueFamilyCount = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(client->physical_device, &queueFamilyCount, NULL);
-
-    VkQueueFamilyProperties *queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
-    vkGetPhysicalDeviceQueueFamilyProperties(client->physical_device, &queueFamilyCount, queueFamilies);
-
-    uint32_t graphicsIndex = UINT32_MAX;
-    for (uint32_t i = 0; i < queueFamilyCount; ++i)
-    {
-        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-        {
-            graphicsIndex = i;
-            break;
-        }
-    }
-    free(queueFamilies);
-
-    assert(graphicsIndex != UINT32_MAX && "No graphics queue family found!");
-
-    /* Build feature chain */
-    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures = {
-        .sType                = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
-        .pNext                = NULL,
-        .extendedDynamicState = VK_TRUE
-    };
-    VkPhysicalDeviceVulkan13Features vulkan13Features = {
-        .sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .pNext            = &extendedDynamicStateFeatures,
-        .dynamicRendering = VK_TRUE
-    };
-    VkPhysicalDeviceFeatures2 features2 = {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &vulkan13Features
-    };
-
-    /* Create logical device */
-    float queuePriority = 0.5f;
-    VkDeviceQueueCreateInfo deviceQueueCreateInfo = {
-        .sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .pNext            = NULL,
-        .queueFamilyIndex = graphicsIndex,
-        .queueCount       = 1,
-        .pQueuePriorities = &queuePriority
-    };
-
-    VkDeviceCreateInfo deviceCreateInfo = {
-        .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext                   = &features2,
-        .queueCreateInfoCount    = 1,
-        .pQueueCreateInfos       = &deviceQueueCreateInfo,
-        .enabledExtensionCount   = requiredDeviceExtensionCount,
-        .ppEnabledExtensionNames = requiredDeviceExtensions
-    };
-
-    VkResult result = vkCreateDevice(client->physical_device, &deviceCreateInfo, NULL, &client->device);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to create logical device: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-
-    /* Retrieve the graphics queue and store the family index */
-    vkGetDeviceQueue(client->device, graphicsIndex, 0, &client->graphics_queue);
-    client->graphics_queue_family_index = graphicsIndex;
-}
-
-
-uint32_t chooseSwapMinImageCount(const VkSurfaceCapabilitiesKHR *capabilities)
-{
-    uint32_t minImageCount = capabilities->minImageCount > 3 ? capabilities->minImageCount : 3;
-
-    if (capabilities->maxImageCount > 0 && capabilities->maxImageCount < minImageCount)
-    {
-        minImageCount = capabilities->maxImageCount;
-    }
-
-    return minImageCount;
-}
-
-
-VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR *capabilities, SDL_Window *window) {
-    if (capabilities->currentExtent.width != UINT32_MAX)
-    {
-        return capabilities->currentExtent;
-    }
-
-    int width, height;
-    SDL_GetWindowSizeInPixels(window, &width, &height);
-
-    VkExtent2D extent = {
-        .width  = (uint32_t)width  < capabilities->minImageExtent.width  ? capabilities->minImageExtent.width  :
-                  (uint32_t)width  > capabilities->maxImageExtent.width  ? capabilities->maxImageExtent.width  : (uint32_t)width,
-        .height = (uint32_t)height < capabilities->minImageExtent.height ? capabilities->minImageExtent.height :
-                  (uint32_t)height > capabilities->maxImageExtent.height ? capabilities->maxImageExtent.height : (uint32_t)height
-    };
-
-    return extent;
-}
-
-VkPresentModeKHR chooseSwapPresentMode(const VkPresentModeKHR *availablePresentModes, uint32_t presentModeCount)
-{
-    bool fifoSupported    = false;
-    bool mailboxSupported = false;
-
-    for (uint32_t i = 0; i < presentModeCount; ++i)
-    {
-        if (availablePresentModes[i] == VK_PRESENT_MODE_FIFO_KHR)
-            fifoSupported = true;
-        if (availablePresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
-            mailboxSupported = true;
-    }
-
-    assert(fifoSupported && "FIFO present mode not supported!");
-
-    return mailboxSupported ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_FIFO_KHR;
-}
-
-
-VkSurfaceFormatKHR chooseSwapSurfaceFormat(const VkSurfaceFormatKHR *availableFormats, uint32_t formatCount)
-{
-    assert(formatCount > 0);
-
-    for (uint32_t i = 0; i < formatCount; ++i)
-    {
-        if (availableFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB &&
-            availableFormats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-        {
-            return availableFormats[i];
-        }
-    }
-
-    return availableFormats[0];
-}
-
-void createImageViews(Client *client)
-{
-    assert(client->swap_chain_image_count > 0);
-
-    client->swap_chain_image_views = malloc(client->swap_chain_image_count * sizeof(VkImageView));
-
-    for (uint32_t i = 0; i < client->swap_chain_image_count; ++i)
-    {
-        VkImageViewCreateInfo imageViewCreateInfo = {
-            .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .pNext    = NULL,
-            .image    = client->swap_chain_images[i],
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format   = client->swap_chain_surface_format.format,
-            .components = {
-                .r = VK_COMPONENT_SWIZZLE_IDENTITY,
-                .g = VK_COMPONENT_SWIZZLE_IDENTITY,
-                .b = VK_COMPONENT_SWIZZLE_IDENTITY,
-                .a = VK_COMPONENT_SWIZZLE_IDENTITY
-            },
-            .subresourceRange = {
-                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel   = 0,
-                .levelCount     = 1,
-                .baseArrayLayer = 0,
-                .layerCount     = 1
-            }
-        };
-
-        VkResult result = vkCreateImageView(client->device, &imageViewCreateInfo, NULL, &client->swap_chain_image_views[i]);
-        if (result != VK_SUCCESS)
-        {
-            fprintf(stderr, "Failed to create image view %u: %d\n", i, result);
-            exit(EXIT_FAILURE);
-        }
-    }
-}
-
-
-
-void createSwapChain(Client *client)
-{
-    VkSurfaceCapabilitiesKHR surfaceCapabilities;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(client->physical_device, client->surface, &surfaceCapabilities);
-
-    client->swap_chain_extent = chooseSwapExtent(&surfaceCapabilities, client->win.window);
-    uint32_t minImageCount    = chooseSwapMinImageCount(&surfaceCapabilities);
-
-    uint32_t formatCount = 0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(client->physical_device, client->surface, &formatCount, NULL);
-    VkSurfaceFormatKHR *availableFormats = malloc(formatCount * sizeof(VkSurfaceFormatKHR));
-    vkGetPhysicalDeviceSurfaceFormatsKHR(client->physical_device, client->surface, &formatCount, availableFormats);
-    client->swap_chain_surface_format = chooseSwapSurfaceFormat(availableFormats, formatCount);
-    free(availableFormats);
-
-    uint32_t presentModeCount = 0;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(client->physical_device, client->surface, &presentModeCount, NULL);
-    VkPresentModeKHR *availablePresentModes = malloc(presentModeCount * sizeof(VkPresentModeKHR));
-    vkGetPhysicalDeviceSurfacePresentModesKHR(client->physical_device, client->surface, &presentModeCount, availablePresentModes);
-    VkPresentModeKHR presentMode = chooseSwapPresentMode(availablePresentModes, presentModeCount);
-    free(availablePresentModes);
-
-    VkSwapchainCreateInfoKHR swapChainCreateInfo = {
-        .sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-        .pNext            = NULL,
-        .surface          = client->surface,
-        .minImageCount    = minImageCount,
-        .imageFormat      = client->swap_chain_surface_format.format,
-        .imageColorSpace  = client->swap_chain_surface_format.colorSpace,
-        .imageExtent      = client->swap_chain_extent,
-        .imageArrayLayers = 1,
-        .imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .preTransform     = surfaceCapabilities.currentTransform,
-        .compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-        .presentMode      = presentMode,
-        .clipped          = VK_TRUE,
-        .oldSwapchain     = VK_NULL_HANDLE
-    };
-
-    VkResult result = vkCreateSwapchainKHR(client->device, &swapChainCreateInfo, NULL, &client->swap_chain);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to create swapchain: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-
-    vkGetSwapchainImagesKHR(client->device, client->swap_chain, &client->swap_chain_image_count, NULL);
-    client->swap_chain_images = malloc(client->swap_chain_image_count * sizeof(VkImage));
-    vkGetSwapchainImagesKHR(client->device, client->swap_chain, &client->swap_chain_image_count, client->swap_chain_images);
-}
-
-
-VkShaderModule createShaderModule(Client *client, const uint32_t *code, size_t codeSize)
-{
-    VkShaderModuleCreateInfo createInfo = {
-        .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .pNext    = NULL,
-        .codeSize = codeSize,
-        .pCode    = code
-    };
-
-    VkShaderModule shaderModule;
-    VkResult result = vkCreateShaderModule(client->device, &createInfo, NULL, &shaderModule);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to create shader module: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-
-    return shaderModule;
-}
-
-void createGraphicsPipeline(Client *client)
-{
-    /* Load and create shader module */
-    size_t    codeSize = 0;
-    uint32_t *code     = readFile("shaders/slang.spv", &codeSize);
-    VkShaderModule shaderModule = createShaderModule(client, code, codeSize);
-    free(code);
-
-    VkPipelineShaderStageCreateInfo vertShaderStageInfo = {
-        .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .pNext  = NULL,
-        .stage  = VK_SHADER_STAGE_VERTEX_BIT,
-        .module = shaderModule,
-        .pName  = "vertMain"
-    };
-
-    VkPipelineShaderStageCreateInfo fragShaderStageInfo = {
-        .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .pNext  = NULL,
-        .stage  = VK_SHADER_STAGE_FRAGMENT_BIT,
-        .module = shaderModule,
-        .pName  = "fragMain"
-    };
-
-    VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
-
-    /* Vertex input */
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
-        .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .pNext                           = NULL,
-        .vertexBindingDescriptionCount   = 0,
-        .pVertexBindingDescriptions      = NULL,
-        .vertexAttributeDescriptionCount = 0,
-        .pVertexAttributeDescriptions    = NULL
-    };
-
-    /* Input assembly */
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly = {
-        .sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        .pNext                  = NULL,
-        .topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-        .primitiveRestartEnable = VK_FALSE
-    };
-
-    /* Viewport state */
-    VkPipelineViewportStateCreateInfo viewportState = {
-        .sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-        .pNext         = NULL,
-        .viewportCount = 1,
-        .scissorCount  = 1
-    };
-
-    /* Rasterizer */
-    VkPipelineRasterizationStateCreateInfo rasterizer = {
-        .sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-        .pNext                   = NULL,
-        .depthClampEnable        = VK_FALSE,
-        .rasterizerDiscardEnable = VK_FALSE,
-        .polygonMode             = VK_POLYGON_MODE_FILL,
-        .cullMode                = VK_CULL_MODE_BACK_BIT,
-        .frontFace               = VK_FRONT_FACE_CLOCKWISE,
-        .depthBiasEnable         = VK_FALSE,
-        .depthBiasSlopeFactor    = 1.0f,
-        .lineWidth               = 1.0f
-    };
-
-    /* Multisampling */
-    VkPipelineMultisampleStateCreateInfo multisampling = {
-        .sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        .pNext                = NULL,
-        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-        .sampleShadingEnable  = VK_FALSE
-    };
-
-    /* Color blend attachment */
-    VkPipelineColorBlendAttachmentState colorBlendAttachment = {
-        .blendEnable    = VK_FALSE,
-        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
-    };
-
-    /* Color blending */
-    VkPipelineColorBlendStateCreateInfo colorBlending = {
-        .sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        .pNext           = NULL,
-        .logicOpEnable   = VK_FALSE,
-        .logicOp         = VK_LOGIC_OP_COPY,
-        .attachmentCount = 1,
-        .pAttachments    = &colorBlendAttachment
-    };
-
-    /* Dynamic state */
-    VkDynamicState dynamicStates[] = {
-        VK_DYNAMIC_STATE_VIEWPORT,
-        VK_DYNAMIC_STATE_SCISSOR
-    };
-
-    VkPipelineDynamicStateCreateInfo dynamicState = {
-        .sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-        .pNext             = NULL,
-        .dynamicStateCount = 2,
-        .pDynamicStates    = dynamicStates
-    };
-
-    /* Pipeline layout */
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
-        .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .pNext                  = NULL,
-        .setLayoutCount         = 0,
-        .pSetLayouts            = NULL,
-        .pushConstantRangeCount = 0,
-        .pPushConstantRanges    = NULL
-    };
-
-    VkResult result = vkCreatePipelineLayout(client->device, &pipelineLayoutInfo, NULL, &client->pipeline_layout);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to create pipeline layout: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-
-    /* Dynamic rendering via pNext chain */
-    VkPipelineRenderingCreateInfo pipelineRenderingInfo = {
-        .sType                   = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-        .pNext                   = NULL,
-        .colorAttachmentCount    = 1,
-        .pColorAttachmentFormats = &client->swap_chain_surface_format.format
-    };
-
-    VkGraphicsPipelineCreateInfo pipelineCreateInfo = {
-        .sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-        .pNext               = &pipelineRenderingInfo,
-        .stageCount          = 2,
-        .pStages             = shaderStages,
-        .pVertexInputState   = &vertexInputInfo,
-        .pInputAssemblyState = &inputAssembly,
-        .pViewportState      = &viewportState,
-        .pRasterizationState = &rasterizer,
-        .pMultisampleState   = &multisampling,
-        .pColorBlendState    = &colorBlending,
-        .pDynamicState       = &dynamicState,
-        .layout              = client->pipeline_layout,
-        .renderPass          = VK_NULL_HANDLE
-    };
-
-    result = vkCreateGraphicsPipelines(client->device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &client->graphics_pipeline);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to create graphics pipeline: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-
-    vkDestroyShaderModule(client->device, shaderModule, NULL);
-}
-
-void transitionImageLayout(Client *client,
-                           uint32_t imageIndex,
-                           VkImageLayout oldLayout,
-                           VkImageLayout newLayout,
-                           VkAccessFlags2 srcAccessMask,
-                           VkAccessFlags2 dstAccessMask,
-                           VkPipelineStageFlags2 srcStageMask,
-                           VkPipelineStageFlags2 dstStageMask)
-{
-    VkImageMemoryBarrier2 barrier = {
-        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-        .pNext               = NULL,
-        .srcStageMask        = srcStageMask,
-        .srcAccessMask       = srcAccessMask,
-        .dstStageMask        = dstStageMask,
-        .dstAccessMask       = dstAccessMask,
-        .oldLayout           = oldLayout,
-        .newLayout           = newLayout,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image               = client->swap_chain_images[imageIndex],
-        .subresourceRange    = {
-            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-            .baseMipLevel   = 0,
-            .levelCount     = 1,
-            .baseArrayLayer = 0,
-            .layerCount     = 1
-        }
-    };
-
-    VkDependencyInfo dependencyInfo = {
-        .sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .pNext                   = NULL,
-        .dependencyFlags         = 0,
-        .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers    = &barrier
-    };
-
-    vkCmdPipelineBarrier2(client->command_buffer, &dependencyInfo);
-}
-
-void recordCommandBuffer(Client *client, uint32_t imageIndex)
-{
-    /* Reset command buffer for reuse */
-    vkResetCommandBuffer(client->command_buffer, 0);
-    
-    VkCommandBufferBeginInfo beginInfo = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .pNext = NULL,
-        .flags = 0
-    };
-
-    vkBeginCommandBuffer(client->command_buffer, &beginInfo);
-
-    /* Transition to color attachment optimal */
-    transitionImageLayout(client, imageIndex,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        0,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
-
-    /* Rendering attachment */
-    VkClearValue clearColor = {.color = {.float32 = {0.0f, 0.0f, 0.0f, 1.0f}}};
-
-    VkRenderingAttachmentInfo attachmentInfo = {
-        .sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .pNext       = NULL,
-        .imageView   = client->swap_chain_image_views[imageIndex],
-        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp     = VK_ATTACHMENT_STORE_OP_STORE,
-        .clearValue  = clearColor
-    };
-
-    VkRenderingInfo renderingInfo = {
-        .sType                = VK_STRUCTURE_TYPE_RENDERING_INFO,
-        .pNext                = NULL,
-        .renderArea           = {.offset = {0, 0}, .extent = client->swap_chain_extent},
-        .layerCount           = 1,
-        .colorAttachmentCount = 1,
-        .pColorAttachments    = &attachmentInfo
-    };
-
-    vkCmdBeginRendering(client->command_buffer, &renderingInfo);
-
-    vkCmdBindPipeline(client->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, client->graphics_pipeline);
-
-    VkViewport viewport = {
-        .x        = 0.0f,
-        .y        = 0.0f,
-        .width    = (float)client->swap_chain_extent.width,
-        .height   = (float)client->swap_chain_extent.height,
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f
-    };
-    vkCmdSetViewport(client->command_buffer, 0, 1, &viewport);
-
-    VkRect2D scissor = {
-        .offset = {0, 0},
-        .extent = client->swap_chain_extent
-    };
-    vkCmdSetScissor(client->command_buffer, 0, 1, &scissor);
-
-    //vkCmdDraw(client->command_buffer, 3, 1, 0, 0);  // TODO: bind vertex buffers first
-
-    vkCmdEndRendering(client->command_buffer);
-
-    /* Transition to present src */
-    transitionImageLayout(client, imageIndex,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        0,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
-
-    vkEndCommandBuffer(client->command_buffer);
-}
-
-
-void createCommandPool(Client *client)
-{
-    VkCommandPoolCreateInfo poolInfo = {
-        .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-        .pNext            = NULL,
-        .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-        .queueFamilyIndex = client->graphics_queue_family_index
-    };
-
-    VkResult result = vkCreateCommandPool(client->device, &poolInfo, NULL, &client->command_pool);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to create command pool: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-}
-
-void createCommandBuffer(Client *client)
-{
-    VkCommandBufferAllocateInfo allocInfo = {
-        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .pNext              = NULL,
-        .commandPool        = client->command_pool,
-        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1
-    };
-
-    VkResult result = vkAllocateCommandBuffers(client->device, &allocInfo, &client->command_buffer);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to allocate command buffer: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-}
-
-
-void createSyncObjects(Client *client)
-{
-    VkSemaphoreCreateInfo semaphoreInfo = {
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0
-    };
-
-    VkFenceCreateInfo fenceInfo = {
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = VK_FENCE_CREATE_SIGNALED_BIT
-    };
-
-    VkResult result = vkCreateSemaphore(client->device, &semaphoreInfo, NULL, &client->present_complete_semaphore);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to create present complete semaphore: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-
-    result = vkCreateSemaphore(client->device, &semaphoreInfo, NULL, &client->render_finished_semaphore);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to create render finished semaphore: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-
-    result = vkCreateFence(client->device, &fenceInfo, NULL, &client->draw_fence);
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to create fence: %d\n", result);
-        exit(EXIT_FAILURE);
-    }
-}
-
-void cleanupSwapChain(Client *client)
-{
-    for (uint32_t i = 0; i < client->swap_chain_image_count; ++i)
-        vkDestroyImageView(client->device, client->swap_chain_image_views[i], NULL);
-
-    free(client->swap_chain_image_views);
-    client->swap_chain_image_views = NULL;
-
-    vkDestroySwapchainKHR(client->device, client->swap_chain, NULL);
-    client->swap_chain = VK_NULL_HANDLE;
-
-    free(client->swap_chain_images);
-    client->swap_chain_images = NULL;
-}
-
-
-void cleanup(Client *client)
-{
-    cleanupSwapChain(client);
-
-    vkDestroyPipeline(client->device, client->graphics_pipeline, NULL);
-    vkDestroyPipelineLayout(client->device, client->pipeline_layout, NULL);
-
-    vkDestroySemaphore(client->device, client->present_complete_semaphore, NULL);
-    vkDestroySemaphore(client->device, client->render_finished_semaphore, NULL);
-    vkDestroyFence(client->device, client->draw_fence, NULL);
-
-    vkDestroyCommandPool(client->device, client->command_pool, NULL);
-    vkDestroyDevice(client->device, NULL);
-    vkDestroySurfaceKHR(client->instance, client->surface, NULL);
-    vkDestroyInstance(client->instance, NULL);
-}
-
-
-
-void recreateSwapChain(Client *client)
-{
-    /* Wait while window is minimized */
-    int width = 0, height = 0;
-    SDL_GetWindowSizeInPixels(client->win.window, &width, &height);
-    while (width == 0 || height == 0)
-    {
-        SDL_GetWindowSizeInPixels(client->win.window, &width, &height);
-        SDL_WaitEvent(NULL);
-    }
-
-    vkDeviceWaitIdle(client->device);
-
-    cleanupSwapChain(client);
-    createSwapChain(client);
-    createImageViews(client);
-}
-
-
-uint32_t *readFile(const char *filename, size_t *fileSize)
-{
-    FILE *file = fopen(filename, "rb");
-    if (!file)
-    {
-        fprintf(stderr, "Failed to open file: %s\n", filename);
-        exit(EXIT_FAILURE);
-    }
-
-    fseek(file, 0, SEEK_END);
-    *fileSize = ftell(file);
-    rewind(file);
-
-    uint32_t *buffer = malloc(*fileSize);
-    if (!buffer)
-    {
-        fprintf(stderr, "Failed to allocate memory for file: %s\n", filename);
-        fclose(file);
-        exit(EXIT_FAILURE);
-    }
-
-    fread(buffer, 1, *fileSize, file);
-    fclose(file);
-
-    return buffer;
+    printf("\nClient closed!\n");
 }
