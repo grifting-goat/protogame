@@ -10,6 +10,7 @@ void physics_p_ground_movement(Player* p, float dt);
 static void physics_apply_friction(Entity* ent, float friction, float dt);
 static void physics_accelerate(Entity* ent, const Vec3* wish_dir, float wish_speed, float accel, float dt);
 static void physics_redirect(Entity* ent, const Vec3* wish_dir, float redirect_rate, float dt);
+static void physics_gliding(Entity* ent, const Vec3* cam_dir, float redirect_rate, float dt);
 
 
 void physics_init(Level* level) {
@@ -59,7 +60,7 @@ void physics_step(Level* level, float dt) {
                 }
 
                 float horizonal_spd_mag = (ent->velocity.x * ent->velocity.x) + (ent->velocity.z * ent->velocity.z);
-                if (p->movement.slide_queued && (horizonal_spd_mag > (p->movement.walk_speed * p->movement.run_speed))) {
+                if (p->movement.slide_queued && (horizonal_spd_mag > (p->movement.walk_speed * p->movement.walk_speed))) {
                     set_state(ent, SLIDING);
                 } else {
                     clear_state(ent, SLIDING);
@@ -69,11 +70,20 @@ void physics_step(Level* level, float dt) {
 
             } else if (is_state(ent, IN_AIR)) {
 
-                physics_p_air_movement(p, dt);
+                if (p->movement.jump_queued && ent->velocity.y < 0.0f) {
+                    p->movement.jump_queued = false;
+                    set_state(ent, GLIDING);
 
-                //apply gravity
-                Vec3 gravity_force = vec3_multiply(&world->gravity, (float)ent->mass);
-                vec3_add_inplace(&ent->force, &gravity_force);
+                    Vec3 gravity_force = vec3_multiply(&world->gravity, (float)ent->mass / 5.0f);
+                    vec3_add_inplace(&ent->force, &gravity_force);
+                } else {
+                    clear_state(ent, GLIDING);
+                    
+                    Vec3 gravity_force = vec3_multiply(&world->gravity, (float)ent->mass);
+                    vec3_add_inplace(&ent->force, &gravity_force);
+                }
+
+                physics_p_air_movement(p, dt);
             }
 
             //apply forces
@@ -119,12 +129,17 @@ void physics_p_air_movement(Player* p, float dt) {
     Entity* ent = &p->entity;
     const Player_movement* m = &p->movement;
 
-    if (vec3_mag_squared(&m->wish_dir) <= EPSILON) {return;}
-
     float wish_speed = m->run_speed;
     if (wish_speed > m->air_speed_cap) {wish_speed = m->air_speed_cap;}
 
-    physics_accelerate(ent, &m->wish_dir, wish_speed, m->air_acceleration, dt);
+    if (is_state(ent, GLIDING)) {
+        physics_gliding(ent, &m->cam_dir, m->glide_redirection, dt);
+    }
+    else {
+        if (vec3_mag_squared(&m->wish_dir) <= EPSILON) {return;}
+        physics_accelerate(ent, &m->wish_dir, wish_speed, m->air_acceleration, dt);
+    }
+    
 }
 
 void physics_p_ground_movement(Player* p, float dt) {
@@ -132,19 +147,17 @@ void physics_p_ground_movement(Player* p, float dt) {
     const Player_movement* m = &p->movement;
 
     float fric = is_state(&p->entity, SLIDING) ? m->slide_friction : m->ground_friction;
-
     physics_apply_friction(ent, fric, dt);
 
-    if (vec3_mag_squared(&m->wish_dir) <= EPSILON) {return;}
-
-    float spd = is_state(ent, RUNNING) ? m->run_speed : m->walk_speed;
-
-    float accel = is_state(ent, RUNNING) ? m->ground_acceleration_run : m->ground_acceleration_walk;
-
     if (is_state(ent, SLIDING)) {
-        physics_redirect(ent, &m->wish_dir, m->slide_redirection, dt);
+        physics_redirect(ent, &m->cam_dir, m->slide_redirection, dt);
     } else {
+
+        if (vec3_mag_squared(&m->wish_dir) <= EPSILON) {return;}
+        float spd = is_state(ent, RUNNING) ? m->run_speed : m->walk_speed;
+        float accel = is_state(ent, RUNNING) ? m->ground_acceleration_run : m->ground_acceleration_walk;
         physics_accelerate(ent, &m->wish_dir, spd, accel, dt);
+
     }
     
 
@@ -189,20 +202,23 @@ static void physics_accelerate(Entity* ent, const Vec3* wish_dir, float wish_spe
     ent->velocity.z += wish_dir->z * accel_speed;
 }
 
-static void physics_redirect(Entity* ent, const Vec3* wish_dir, float redirect_rate, float dt) {
+static void physics_redirect(Entity* ent, const Vec3* cam_dir, float redirect_rate, float dt) {
+
     float speed = sqrtf(ent->velocity.x * ent->velocity.x + ent->velocity.z * ent->velocity.z);
 
-    if (speed <= EPSILON) {
-        return;
-    }
+    if (speed <= EPSILON) {return;}
 
-    float dir_len_sq = (wish_dir->x * wish_dir->x) + (wish_dir->z * wish_dir->z);
+    float dir_len_sq = (cam_dir->x * cam_dir->x) + (cam_dir->z * cam_dir->z);
+
     if (dir_len_sq <= EPSILON) {
         return;
     }
 
+    Vec3 cam_flat = {cam_dir->x, 0.0f, cam_dir->z};
+    cam_flat = vec3_normalize(&cam_flat);
+
     Vec3 current = {ent->velocity.x, 0.0f, ent->velocity.z};
-    Vec3 desired = {wish_dir->x * speed, 0.0f, wish_dir->z * speed};
+    Vec3 desired = {cam_flat.x * speed, 0.0f, cam_flat.z * speed};
 
     float turn_t = redirect_rate * dt;
     if (turn_t < 0.0f) turn_t = 0.0f;
@@ -222,4 +238,38 @@ static void physics_redirect(Entity* ent, const Vec3* wish_dir, float redirect_r
     float preserve_scale = speed / blended_speed;
     ent->velocity.x = blended.x * preserve_scale;
     ent->velocity.z = blended.z * preserve_scale;
+}
+
+
+
+static void physics_gliding(Entity* ent, const Vec3* cam_dir, float redirect_rate, float dt) {
+    float speed = vec3_mag(&ent->velocity);
+    if (speed <= EPSILON) {return;}
+
+    float dir_len_sq = vec3_mag_squared(cam_dir);
+    if (dir_len_sq <= EPSILON) {return;}
+
+    Vec3 current = ent->velocity;
+    Vec3 desired = vec3_multiply(cam_dir, speed);
+
+    float turn_t = redirect_rate * dt;
+    if (turn_t < 0.0f) turn_t = 0.0f;
+    if (turn_t > 1.0f) turn_t = 1.0f;
+
+    Vec3 blended = {
+        current.x + (desired.x - current.x) * turn_t,
+        current.y + (desired.y - current.y) * turn_t,
+        current.z + (desired.z - current.z) * turn_t
+    };
+
+    float redirected_speed = vec3_mag(&blended);
+    if (redirected_speed <= EPSILON) {return;}
+
+    float preserve_scale = speed / redirected_speed;
+
+    ent->velocity.x = blended.x * preserve_scale;
+    ent->velocity.y = blended.y * preserve_scale;
+    ent->velocity.z = blended.z * preserve_scale;
+
+    physics_accelerate(ent, cam_dir, 30.0f, 0.2f, dt);
 }

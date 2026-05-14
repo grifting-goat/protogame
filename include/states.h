@@ -9,6 +9,7 @@
 #define SWIMMING (1 << 3)
 #define RUNNING (1 << 4)
 #define SLIDING (1 << 5)
+#define GLIDING (1 << 6)
 
 
 static inline bool is_state(Entity* ent, uint32_t flag)  { return ent->states & flag; }

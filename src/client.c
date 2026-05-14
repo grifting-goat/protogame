@@ -130,11 +130,8 @@ bool client_run(Client *client)
         enet_peer_send(client->server_peer, 1, packet);
         send_time_accum -= send_interval;
     }
-
-    //Vec3 dir = client_input_basic(&client->player_input, &client->player_camera);
-    //vec3_multiply_inplace(&dir, 6.0f * dt);
     if (client->player) {
-        //vec3_add_inplace(&client->player->entity.position, &dir);
+        client->player->movement.cam_dir = camera_forward(&client->player_camera);
         client_input_test(client, &client->player_input, &client->player_camera);
     }
 
@@ -215,7 +212,6 @@ Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) 
 
 void client_input_test(Client* client, InputHandle *player_input, const Camera* player_camera) {
     Vec3 dir = {0.0f, 0.0f, 0.0f};
-    dMouse m = input_mouse(player_input);
 
     if (player_input->kb_state[SDL_SCANCODE_W]) dir.z += 1.0f;
     if (player_input->kb_state[SDL_SCANCODE_S]) dir.z -= 1.0f;
