@@ -158,22 +158,32 @@ void client_render(Client *client) {
     shader_set_mat4(basic_shader, "view", &view);
     shader_set_mat4(basic_shader, "projection", &projection);
 
-    Vec3 white = {1.0f, 1.0f, 1.0f};
+    Vec3 temp_color[8] = {
+        (Vec3){1.0f, 0.0f, 0.0f}, // red
+        (Vec3){1.0f, 0.5f, 0.0f}, // orange
+        (Vec3){1.0f, 1.0f, 0.0f}, // yellow
+        (Vec3){0.0f, 1.0f, 0.0f}, // green
+        (Vec3){0.0f, 0.0f, 1.0f}, // blue
+        (Vec3){0.5f, 0.0f, 1.0f}, // purple
+        (Vec3){1.0f, 1.0f, 1.0f}, // white
+        (Vec3){0.0f, 0.0f, 0.0f}  // black
+    };
+
 
     for (int i = 0; i < client->level.model_count; i++) {
         Vec3 thing = {0.0f, -2.0f, 0.0f};
-        render_model(&client->level.models[i], thing, basic_shader, white);
+        render_model(&client->level.models[i], thing, basic_shader, temp_color[6]);
     }
 
     for (int i = 0; i < hmlen(client->level.player_map); i++) {
         if (client->level.player_map[i].key != client->server_id) {
-            render_entity(&client->level.player_map[i].value.entity, basic_shader, white);
+            render_entity(&client->level.player_map[i].value.entity, basic_shader, temp_color[((client->level.player_map[i].key) + 3) % 8]);
         }
     }
 
     for (int i = 0; i < hmlen(client->level.ent_map); i++) {
         if (client->level.ent_map[i].key != client->server_id) {
-            render_entity(&client->level.ent_map[i].value, basic_shader, white);
+            render_entity(&client->level.ent_map[i].value, basic_shader, temp_color[7]);
         }
         
     }
