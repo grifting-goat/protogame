@@ -1,12 +1,15 @@
 #include "client.h"
 #include <glad/glad.h>
 #include <string.h>
+#include <stdio.h>
 #include "packet.h"
 #include "stb_ds.h"
+#include "states.h"
 
 void client_render(Client *client);
 
 Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera);
+void client_input_test(Client* client, InputHandle *player_input, const Camera* player_camera);
 
 bool client_enet_startup(Client* client);
 bool client_enet_connect(Client* client, const char* host);
@@ -42,18 +45,10 @@ bool client_startup(Client *client, const char* host)
     Model ground = temp_create_plane();
     level_add_model(&client->level, &ground);
 
-    client->player = player_create();
-    memset(&client->player.entity.model, 0, sizeof(client->player.entity.model));
+    client->player = NULL;
 
     camera_init(&client->player_camera);
-
-    camera_attach(
-        &client->player_camera,
-        &client->player.entity.position,
-        &client->player_camera.offset_vector);
-
     client->player_camera.mode = 0;
-    client->player.entity.position.y = 0.0f;
 
     client->unique_id = ((uint64_t)(uint32_t)rand() << 32) | (uint64_t)(uint32_t)rand();
 
@@ -62,6 +57,8 @@ bool client_startup(Client *client, const char* host)
 
     if (!client_enet_connect(client, host))
         return false;
+    
+    window_add_overlay(&client->win, "fps", "FPS: 0", 20, 20);
 
     return true;
 }
@@ -72,6 +69,8 @@ bool client_run(Client *client)
         return false;
 
     static Uint64 send_time_accum = 0;
+    static Uint64 fps_ui_ticks_accum = 0;
+    static int fps_ui_frame_count = 0;
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -97,6 +96,23 @@ bool client_run(Client *client)
 
     client->level.fps_time_accum += frame_ticks;
     client->level.frame_count++;
+
+    fps_ui_ticks_accum += frame_ticks;
+    fps_ui_frame_count++;
+
+    if (fps_ui_ticks_accum >= (client->level.perf_freq / 4)) {
+        float seconds = (float)fps_ui_ticks_accum / (float)client->level.perf_freq;
+        float fps = seconds > 0.0f ? ((float)fps_ui_frame_count / seconds) : 0.0f;
+        char fps_text[64];
+        SDL_snprintf(fps_text, sizeof(fps_text), "FPS: %.0f", fps);
+        window_update_overlay(&client->win, "fps", fps_text);
+
+        fps_ui_ticks_accum = 0;
+        fps_ui_frame_count = 0;
+    }
+    
+
+
     if (client->level.fps_time_accum >= client->level.perf_freq) {
         client->level.fps_time_accum = 0;
         client->level.frame_count = 0;
@@ -104,20 +120,23 @@ bool client_run(Client *client)
 
     send_time_accum += frame_ticks;
     const Uint64 send_interval = client->level.perf_freq / 64;
-    while (client->enet_connected && send_time_accum >= send_interval) {
-        Packet_pos payload = {PCKT_CLIENT_POS, client->server_id, client->player.entity.position};
+    while (client->enet_connected && client->player && send_time_accum >= send_interval) {
+        Packet_pos payload = {PCKT_CLIENT_POS, client->server_id, client->player->entity.position, client->player->entity.velocity};
         ENetPacket* packet = enet_packet_create(
             &payload,
             sizeof(payload),
-            ENET_PACKET_FLAG_RELIABLE
+            0
         );
-        enet_peer_send(client->server_peer, 0, packet);
+        enet_peer_send(client->server_peer, 1, packet);
         send_time_accum -= send_interval;
     }
 
-    Vec3 dir = client_input_basic(&client->player_input, &client->player_camera);
-    vec3_multiply_inplace(&dir, 6.0f * dt);
-    vec3_add_inplace(&client->player.entity.position, &dir);
+    //Vec3 dir = client_input_basic(&client->player_input, &client->player_camera);
+    //vec3_multiply_inplace(&dir, 6.0f * dt);
+    if (client->player) {
+        //vec3_add_inplace(&client->player->entity.position, &dir);
+        client_input_test(client, &client->player_input, &client->player_camera);
+    }
 
 
     client_enet_poll(client);
@@ -153,9 +172,16 @@ void client_render(Client *client) {
         if (client->level.player_map[i].key != client->server_id) {
             render_entity(&client->level.player_map[i].value.entity, basic_shader, white);
         }
+    }
+
+    for (int i = 0; i < hmlen(client->level.ent_map); i++) {
+        if (client->level.ent_map[i].key != client->server_id) {
+            render_entity(&client->level.ent_map[i].value, basic_shader, white);
+        }
         
     }
-    
+
+    window_render_overlay(&client->win);
     window_swap_buffers(&client->win);
 }
 
@@ -165,6 +191,7 @@ Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) 
     if (player_input->kb_state[SDL_SCANCODE_S]) dir.z -= 1.0f;
     if (player_input->kb_state[SDL_SCANCODE_A]) dir.x += 1.0f;
     if (player_input->kb_state[SDL_SCANCODE_D]) dir.x -= 1.0f;
+    
     if (player_input->kb_state[SDL_SCANCODE_SPACE]) dir.y += 1.0f;
     if (player_input->kb_state[SDL_SCANCODE_LCTRL]) dir.y -= 1.0f;
 
@@ -184,6 +211,38 @@ Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) 
     move_dir = vec3_normalize(&move_dir);
 
     return move_dir;
+}
+
+void client_input_test(Client* client, InputHandle *player_input, const Camera* player_camera) {
+    Vec3 dir = {0.0f, 0.0f, 0.0f};
+    dMouse m = input_mouse(player_input);
+
+    if (player_input->kb_state[SDL_SCANCODE_W]) dir.z += 1.0f;
+    if (player_input->kb_state[SDL_SCANCODE_S]) dir.z -= 1.0f;
+    if (player_input->kb_state[SDL_SCANCODE_A]) dir.x += 1.0f;
+    if (player_input->kb_state[SDL_SCANCODE_D]) dir.x -= 1.0f;
+
+    player_input->kb_state[SDL_SCANCODE_LSHIFT] ? set_state(&client->player->entity, RUNNING) : clear_state(&client->player->entity, RUNNING);
+    
+    client->player->movement.jump_queued = player_input->kb_state[SDL_SCANCODE_SPACE];
+    client->player->movement.slide_queued = player_input->kb_state[SDL_SCANCODE_LCTRL];
+
+
+    Vec3 forward = camera_forward(player_camera);
+    Vec3 right = camera_right(player_camera);
+
+    forward.y = 0.0f; right.y = 0.0f;
+    forward = vec3_normalize(&forward);
+    right = vec3_normalize(&right);
+
+    Vec3 move_dir = {
+        forward.x * dir.z + right.x * dir.x,
+        0,
+        forward.z * dir.z + right.z * dir.x
+    };
+
+    move_dir = vec3_normalize(&move_dir);
+    client->player->movement.wish_dir = move_dir;
 }
 
 
@@ -254,9 +313,20 @@ void client_enet_poll(Client* client) {
                     const uint8_t* data = (const uint8_t*)event.packet->data;
                     const uint8_t packet_type = data[0];
 
-                    if (packet_type == PCKT_SERVER_ID && event.packet->dataLength >= 2) {
-                        client->server_id = data[1];
+                    if (packet_type == PCKT_SERVER_ID && event.packet->dataLength >= (1 + sizeof(uint32_t))) {
+                        const Packet_server_id* id_pack = (const Packet_server_id *)event.packet->data;
+                        client->server_id = id_pack->server_id;
                         printf("Assigned server id: %u\n", (unsigned)client->server_id);
+
+                        level_add_player(&client->level, client->unique_id, client->server_id);
+                        int p = hmgeti(client->level.player_map, client->server_id);
+                        if (p != -1) {
+                            client->player = &client->level.player_map[p].value;
+                            camera_attach(
+                                &client->player_camera,
+                                &client->player->entity.position,
+                                &client->player->eye_offset);
+                        }
 
                         Packet_client_ack ack = {
                             PCKT_CLIENT_ACK,
@@ -275,17 +345,26 @@ void client_enet_poll(Client* client) {
 
                     if (packet_type == PCKT_SERVER_POS && event.packet->dataLength >= sizeof(Packet_pos)) {
                         const Packet_pos* pos_pack = (const Packet_pos*)event.packet->data;
+                        if (pos_pack->server_id == client->server_id) {
+                            continue;
+                        }
                         int idx = hmgeti(client->level.player_map, pos_pack->server_id);
                         if (idx != -1) {
                             client->level.player_map[idx].value.entity.position = pos_pack->pos;
+                            client->level.player_map[idx].value.entity.velocity = pos_pack->vel;
                         }
                     }
 
-                    if (packet_type == PCKT_ADD_PLAYER && event.packet->dataLength >= sizeof(Packet_new_player)) {
-                        const Packet_new_player* player_pack = (const Packet_new_player*)event.packet->data;
+                    if (packet_type == PCKT_ADD_PLAYER && event.packet->dataLength >= sizeof(Packet_player)) {
+                        const Packet_player* player_pack = (const Packet_player*)event.packet->data;
                         if (hmgeti(client->level.player_map, player_pack->server_id) == -1) {
                             level_add_player(&client->level, player_pack->uqid, player_pack->server_id);
                         }
+                    }
+
+                    if (packet_type == PCKT_REMOVE_PLAYER && event.packet->dataLength >= sizeof(Packet_player)) {
+                        const Packet_player* player_pack = (const Packet_player*)event.packet->data;
+                        hmdel(client->level.player_map, player_pack->server_id);
                     }
                 }
 
@@ -308,18 +387,30 @@ void client_close(Client *client)
     if (!client)
         return;
 
-    window_destroy(&client->win);
-    window_quit();
-    level_destroy(&client->level);
-
-    if (client->server_peer) {
+    if (client->server_peer && client->e_client) {
         enet_peer_disconnect(client->server_peer, 0);
+        ENetEvent event;
+        int attempts = 0;
+        while (attempts < 200 && enet_host_service(client->e_client, &event, 10) > 0) {
+            if (event.type == ENET_EVENT_TYPE_RECEIVE)
+                enet_packet_destroy(event.packet);
+            else if (event.type == ENET_EVENT_TYPE_DISCONNECT)
+                break;
+            attempts++;
+        }
+        enet_peer_reset(client->server_peer);
+        client->server_peer = NULL;
     }
 
     if (client->e_client) {
         enet_host_destroy(client->e_client);
+        client->e_client = NULL;
     }
     enet_deinitialize();
+
+    window_destroy(&client->win);
+    window_quit();
+    level_destroy(&client->level);
 
     printf("\nClient closed!\n");
 }

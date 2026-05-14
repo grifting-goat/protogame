@@ -13,14 +13,13 @@
 typedef struct {
     Window win;
     Level level;
-    Player player;
-
-
+    Player* player;
+    
     Camera player_camera;
     InputHandle player_input;
 
     uint64_t unique_id;
-    uint8_t server_id;
+    uint32_t server_id;
 
     ENetHost* e_client;
     ENetPeer* server_peer;

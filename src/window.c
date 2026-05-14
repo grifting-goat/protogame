@@ -1,4 +1,6 @@
 #include "window.h"
+#include <string.h>
+#include "stb_ds.h"
 
 //boilerplate
 
@@ -13,6 +15,8 @@ bool window_create(Window* win, const char* title, int width, int height, bool f
     win->width = width;
     win->height = height;
     win->fullscreen = fullscreen;
+    win->overlay_text_map = NULL;
+    sh_new_strdup(win->overlay_text_map);
     
     //create window with OpenGL support
     win->window = SDL_CreateWindow(
@@ -37,6 +41,15 @@ bool window_create(Window* win, const char* title, int width, int height, bool f
         SDL_DestroyWindow(win->window);
         return false;
     }
+
+    if (!overlay_init("UncialAntiqua-Regular.ttf", 50)) {
+        SDL_Log("Could not initialize SDL_ttf overlay font: %s", SDL_GetError());
+        SDL_GL_DestroyContext(win->gl_context);
+        win->gl_context = NULL;
+        SDL_DestroyWindow(win->window);
+        win->window = NULL;
+        return false;
+    }
     
     
     return true;
@@ -59,6 +72,41 @@ void window_toggle_fullscreen(Window* win) {
     SDL_SetWindowFullscreen(win->window, win->fullscreen);
 }
 
+bool window_add_overlay(Window* win, const char* key, const char* text, int x, int y) {
+    if (!win || !key || !text) return false;
+
+    OverlayText glob;
+    memset(&glob, 0, sizeof(glob));
+    if (!overlay_create_text(&glob, text, x, y)) return false;
+
+    int idx = shgeti(win->overlay_text_map, key);
+    if (idx != -1) {
+        overlay_destroy_text(&win->overlay_text_map[idx].value);
+        win->overlay_text_map[idx].value = glob;
+    } else {
+        shput(win->overlay_text_map, key, glob);
+    }
+
+    return true;
+}
+
+bool window_update_overlay(Window* win, const char* key, const char* text) {
+    if (!win || !key || !text) return false;
+    int idx = shgeti(win->overlay_text_map, key);
+    if (idx == -1) return false;
+
+    OverlayText* ov = &win->overlay_text_map[idx].value;
+    return overlay_create_text(ov, text, ov->x, ov->y);
+}
+
+void window_render_overlay(Window* win) {
+    if (!win) return;
+
+    for (int i = 0; i < shlen(win->overlay_text_map); i++) {
+        overlay_render_text(&win->overlay_text_map[i].value, win->width, win->height);
+    }
+}
+
 void window_swap_buffers(Window* win) {
     if (!win || !win->window) return;
     
@@ -67,6 +115,13 @@ void window_swap_buffers(Window* win) {
 
 void window_destroy(Window* win) {
     if (!win) return;
+
+    for (int i = 0; i < shlen(win->overlay_text_map); i++) {
+        overlay_destroy_text(&win->overlay_text_map[i].value);
+    }
+
+    shfree(win->overlay_text_map);
+    win->overlay_text_map = NULL;
     
     if (win->gl_context) {
         SDL_GL_DestroyContext(win->gl_context);
@@ -77,6 +132,10 @@ void window_destroy(Window* win) {
         SDL_DestroyWindow(win->window);
         win->window = NULL;
     }
+
+    overlay_quit();
+
+
 }
 
 void window_quit(void) {SDL_Quit();}

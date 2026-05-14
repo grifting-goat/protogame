@@ -14,14 +14,13 @@ bool level_create(Level* level, uint32_t tick_rate) {
     level->frame_count = 0;
     level->initialized = true;
 
-    level->ent_count = 0;
     level->model_count = 0;
     level->models = NULL;
-    level->ents = NULL;
+    level->ent_map = NULL;
     level->player_map = NULL;
     level->server = false;
 
-    // player_count removed; player_map handles all players
+    physics_init(level);
     
     return true;
 }
@@ -30,13 +29,15 @@ bool level_update(Level* level, float delta_time) {
     if (!level || !level->initialized) return false;
 
     if (level->server) {
-      
+        physics_world_update(level, delta_time);
+    } else {
+        physics_step(level, delta_time);
     }
 
     return true;
 }
 
-bool level_add_player(Level* level, uint64_t uqid, uint8_t server_id) {
+bool level_add_player(Level* level, uint64_t uqid, uint32_t server_id) {
     if (!level || !level->initialized) return false;
 
     Player new_player = player_create();
@@ -80,9 +81,8 @@ void level_destroy(Level* level) {
     level->models = NULL;
     level->model_count = 0;
 
-    free(level->ents);
-    level->ents = NULL;
-    level->ent_count = 0;
+    hmfree(level->ent_map);
+    level->ent_map = NULL;
 
     hmfree(level->player_map);
     level->player_map = NULL;

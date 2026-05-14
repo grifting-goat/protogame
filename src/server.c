@@ -50,13 +50,13 @@ bool server_run(Server* server) {
     while (send_time_accum >= send_interval) {
 
         for (int i = 0; i < hmlen(server->level.player_map); i++) {
-            Packet_pos payload = {PCKT_SERVER_POS, server->level.player_map[i].key, server->level.player_map[i].value.entity.position};
+            Packet_pos payload = {PCKT_SERVER_POS, server->level.player_map[i].key, server->level.player_map[i].value.entity.position, server->level.player_map[i].value.entity.velocity};
             ENetPacket* packet = enet_packet_create(
                 &payload,
                 sizeof(payload),
-                ENET_PACKET_FLAG_RELIABLE
+                0
             );
-            enet_host_broadcast(server->e_server, 0, packet);
+            enet_host_broadcast(server->e_server, 1, packet);
         }
 
         send_time_accum -= send_interval;
@@ -105,11 +105,11 @@ void server_enet_poll(Server* s) {
                         printf("%sClient connected: <unknown>:%u\n", server_tag, event.peer->address.port);
                     }
 
-                    uint8_t assigned_id = (uint8_t)event.peer->incomingPeerID;
-                    uint8_t pack[2] = {PCKT_SERVER_ID, assigned_id};
+                    uint32_t assigned_id = (uint32_t)event.peer->incomingPeerID;
+                    Packet_server_id pack = {PCKT_SERVER_ID, assigned_id};
                     ENetPacket* packet = enet_packet_create(
-                        pack,
-                        2,
+                        &pack,
+                        sizeof(pack),
                         ENET_PACKET_FLAG_RELIABLE
                     );
                     enet_peer_send(event.peer, 0, packet);
@@ -127,7 +127,7 @@ void server_enet_poll(Server* s) {
                         const Packet_client_ack* pos = (const Packet_client_ack*)event.packet->data;
 
                         for (int i = 0; i < hmlen(s->level.player_map); i++) {
-                            Packet_new_player existing = {
+                            Packet_player existing = {
                                 PCKT_ADD_PLAYER,
                                 s->level.player_map[i].key,
                                 s->level.player_map[i].value.unqid
@@ -145,7 +145,7 @@ void server_enet_poll(Server* s) {
                         level_add_player(&s->level, pos->uqid, pos->server_id);
 
                         //send to all connected clients
-                        Packet_new_player payload = {PCKT_ADD_PLAYER, pos->server_id, pos->uqid};
+                        Packet_player payload = {PCKT_ADD_PLAYER, pos->server_id, pos->uqid};
                         ENetPacket* packet = enet_packet_create(
                             &payload,
                             sizeof(payload),
@@ -161,6 +161,7 @@ void server_enet_poll(Server* s) {
                         int idx = hmgeti(s->level.player_map, pos->server_id);
                         if (idx != -1) {
                             s->level.player_map[idx].value.entity.position = pos->pos;
+                            s->level.player_map[idx].value.entity.velocity= pos->vel;
                         }
                     }
 
@@ -169,7 +170,25 @@ void server_enet_poll(Server* s) {
                 break;
 
             case ENET_EVENT_TYPE_DISCONNECT:
-                printf("%sClient disconnected.\n", server_tag);
+                {
+                    uint32_t disconnected_id = (uint32_t)event.peer->incomingPeerID;
+                    printf("%sClient disconnected (id=%u).\n", server_tag, disconnected_id);
+
+                    int idx = hmgeti(s->level.player_map, disconnected_id);
+                    uint64_t uqid = (idx != -1) ? s->level.player_map[idx].value.unqid : 0;
+
+                    hmdel(s->level.player_map, disconnected_id);
+
+                    Packet_player payload = {PCKT_REMOVE_PLAYER, disconnected_id, uqid};
+                    ENetPacket* packet = enet_packet_create(
+                        &payload,
+                        sizeof(payload),
+                        ENET_PACKET_FLAG_RELIABLE
+                    );
+                    if (packet) {
+                        enet_host_broadcast(s->e_server, 0, packet);
+                    }
+                }
                 break;
 
             default:

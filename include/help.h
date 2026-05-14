@@ -78,7 +78,7 @@ static inline Model temp_create_sphere(int sectorCount, int stackCount, float ra
     }
 
     Model sphere;
-    model_create(&sphere, vertices, vertex_count, indices, index_count, "sand.jpg");
+    model_create(&sphere, vertices, vertex_count, indices, index_count, "mystical.png");
     free(vertices);
     free(indices);
     return sphere;

@@ -6,18 +6,27 @@
 #define PCKT_ADD_PLAYER 0x02
 #define PCKT_CLIENT_POS 0x03
 #define PCKT_SERVER_POS 0x04
+#define PCKT_REMOVE_PLAYER 0x05
+
 
 typedef struct {
     uint8_t pckt_id;
-    uint8_t server_id;
+    uint32_t server_id;
+}
+Packet_server_id;
+
+typedef struct {
+    uint8_t pckt_id;
+    uint32_t server_id;
     Vec3 pos;
+    Vec3 vel;
     
 } Packet_pos;
 
 
 typedef struct {
     uint8_t pckt_id;
-    uint8_t server_id;
+    uint32_t server_id;
     uint64_t uqid;
 
 } Packet_client_ack;
@@ -25,9 +34,10 @@ typedef struct {
 
 typedef struct {
     uint8_t pckt_id;
-    uint8_t server_id;
+    uint32_t server_id;
     uint64_t uqid;
-} Packet_new_player;
+
+} Packet_player;
 
 
 #endif //PACKET_H

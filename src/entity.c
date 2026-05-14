@@ -8,6 +8,7 @@ void entity_create_default(Entity *ent) {
     ent->force = (Vec3){0.0f,0.0f,0.0f};
     ent->mass = 20.0f;
     ent->health = 100.0f;
+    ent->radius = 0.5f;
 
 
 }
