@@ -11,6 +11,9 @@ static void physics_apply_friction(Entity* ent, float friction, float dt);
 static void physics_accelerate(Entity* ent, const Vec3* wish_dir, float wish_speed, float accel, float dt);
 static void physics_redirect(Entity* ent, const Vec3* wish_dir, float redirect_rate, float dt);
 static void physics_gliding(Entity* ent, const Vec3* cam_dir, float redirect_rate, float dt);
+static void physics_air_accelerate(Entity* ent, Vec3 wishvel, float wishspeed, float accelerate,  float dt);
+
+void physics_funny_bounds_check(Entity* ent);
 
 Player* ray_check_player_collison(Level* level, Player* shooter, float max_ray_len, float step);
 
@@ -85,7 +88,7 @@ void physics_step(Level* level, float dt) {
 
         } else if (is_state(ent, IN_AIR)) {
 
-            if (p->movement.jump_queued && ent->velocity.y < 6.0f) {
+            if (0 /*p->movement.jump_queued && ent->velocity.y < 6.0f*/) {
                 set_state(ent, GLIDING);
 
                 Vec3 gravity_force = vec3_multiply(&world->gravity, (float)ent->mass / 5.0f);
@@ -99,6 +102,8 @@ void physics_step(Level* level, float dt) {
 
             physics_p_air_movement(p, dt);
         }
+
+        physics_funny_bounds_check(ent);
 
         //apply forces
         Vec3 delta_vel = vec3_multiply(&ent->force, dt / (float)ent->mass);
@@ -121,6 +126,8 @@ void physics_step(Level* level, float dt) {
         physics_update_states(level, ent);
 
         ent->force = (Vec3){0.0f, 0.0f, 0.0f};
+
+        
     }
 
 }
@@ -143,15 +150,20 @@ void physics_p_air_movement(Player* p, float dt) {
     Entity* ent = &p->entity;
     const Player_movement* m = &p->movement;
 
-    float wish_speed = m->run_speed;
-    if (wish_speed > m->air_speed_cap) {wish_speed = m->air_speed_cap;}
+    Vec3 wishdir = (Vec3){m->wish_dir.x, 0.0f, m->wish_dir.z};
+
+    if (vec3_mag_squared(&wishdir) > EPSILON) {vec3_normalize_inplace(&wishdir);}
+
+    float wishspeed = m->run_speed;
+    if (wishspeed > m->air_speed_cap) {wishspeed = m->air_speed_cap;}
+    Vec3 wishvel = vec3_multiply(&wishdir, wishspeed);
 
     if (is_state(ent, GLIDING)) {
         physics_gliding(ent, &m->cam_dir, m->glide_redirection, dt);
     }
     else {
-        if (vec3_mag_squared(&m->wish_dir) <= EPSILON) {return;}
-        physics_accelerate(ent, &m->wish_dir, wish_speed, m->air_acceleration, dt);
+        if (vec3_mag_squared(&wishvel) <= EPSILON) {return;}
+        physics_air_accelerate(ent, wishvel, wishspeed, m->air_acceleration, dt);
     }
     
 }
@@ -169,7 +181,13 @@ void physics_p_ground_movement(Player* p, float dt) {
         if (vec3_mag_squared(&m->wish_dir) <= EPSILON) {return;}
         float spd = is_state(ent, RUNNING) ? m->run_speed : m->walk_speed;
         float accel = is_state(ent, RUNNING) ? m->ground_acceleration_run : m->ground_acceleration_walk;
-        physics_accelerate(ent, &m->wish_dir, spd, accel, dt);
+
+        Vec3 wishdir = (Vec3){m->wish_dir.x, 0.0f, m->wish_dir.z};
+        if (vec3_mag_squared(&wishdir) <= EPSILON) {return;}
+        vec3_normalize_inplace(&wishdir);
+        Vec3 wishvel = vec3_multiply(&wishdir, spd);
+
+        physics_air_accelerate(ent, wishvel, spd, accel, dt);
 
     }
     
@@ -207,12 +225,30 @@ static void physics_accelerate(Entity* ent, const Vec3* wish_dir, float wish_spe
     if (add_speed <= 0.0f) {return;}
 
     float accel_speed = accel * dt * wish_speed;
+
     if (accel_speed > add_speed) {
         accel_speed = add_speed;
     }
 
     ent->velocity.x += wish_dir->x * accel_speed;
     ent->velocity.z += wish_dir->z * accel_speed;
+}
+
+
+
+static void physics_air_accelerate(Entity* ent, Vec3 wishvel, float wishspeed, float accelerate,  float dt) {
+    float wishspd = vec3_mag(&wishvel);
+    vec3_normalize_inplace(&wishvel);
+    float currentspeed = vec3_dot(&ent->velocity, &wishvel);
+    float addspeed = wishspd - currentspeed;
+    if(addspeed <=0) {return;}
+    float accelspeed = accelerate  * wishspeed * dt;
+
+    if (accelspeed > addspeed) {accelspeed = addspeed;}
+
+    Vec3 accel_vel = vec3_multiply(&wishvel, accelspeed);
+    vec3_add_inplace(&ent->velocity, &accel_vel);
+    
 }
 
 static void physics_redirect(Entity* ent, const Vec3* cam_dir, float redirect_rate, float dt) {
@@ -328,4 +364,19 @@ Player* ray_check_player_collison(Level* level, Player* shooter, float max_ray_l
     }
 
     return NULL;
+}
+
+
+
+void physics_funny_bounds_check(Entity* ent) {
+    if (vec3_mag(&ent->position) > 300.0f) {
+        Vec3 to_center = vec3_subtract(&(Vec3){0.0f, 0.0f, 0.0f}, &ent->position);
+        if (vec3_mag_squared(&to_center) <= EPSILON) {return;}
+        vec3_normalize_inplace(&to_center);
+
+        float speed = vec3_mag(&ent->velocity);
+        Vec3 backvel = vec3_multiply(&to_center, speed);
+
+        ent->velocity = backvel;
+    }
 }

@@ -42,7 +42,7 @@ bool window_create(Window* win, const char* title, int width, int height, bool f
         return false;
     }
 
-    if (!overlay_init("UncialAntiqua-Regular.ttf", 50)) {
+    if (!overlay_init("UncialAntiqua-Regular.ttf", 30)) {
         SDL_Log("Could not initialize SDL_ttf overlay font: %s", SDL_GetError());
         SDL_GL_DestroyContext(win->gl_context);
         win->gl_context = NULL;

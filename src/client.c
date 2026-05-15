@@ -43,7 +43,9 @@ bool client_startup(Client *client, const char* host)
     input_init(&client->player_input, &client->win);
 
     Model ground = temp_create_plane();
+    Model skybox = temp_create_skybox();
     level_add_model(&client->level, &ground);
+    level_add_model(&client->level, &skybox);
 
     client->player = NULL;
 
@@ -60,7 +62,9 @@ bool client_startup(Client *client, const char* host)
     if (!client_enet_connect(client, host))
         return false;
     
-    window_add_overlay(&client->win, "fps", "FPS: 0", 20, 20);
+    window_add_overlay(&client->win, "fps", "FPS: 0", 20, 10);
+    window_add_overlay(&client->win, "dir", "Dir: 0,0", 20, 50);
+    window_add_overlay(&client->win, "vel", "Vel: 0", 20, 90);
 
     return true;
 }
@@ -105,9 +109,18 @@ bool client_run(Client *client)
     if (fps_ui_ticks_accum >= (client->level.perf_freq / 4)) {
         float seconds = (float)fps_ui_ticks_accum / (float)client->level.perf_freq;
         float fps = seconds > 0.0f ? ((float)fps_ui_frame_count / seconds) : 0.0f;
+        float vel = client->player ? vec3_mag(&client->player->entity.velocity) : 0.0f;
+        Vec3 dir = client->player ? client->player_camera.angles : (Vec3){0.0f,0.0f, 0.0f};
         char fps_text[64];
+        char vel_text[64];
+        char dir_text[64];
         SDL_snprintf(fps_text, sizeof(fps_text), "FPS: %.0f", fps);
+        SDL_snprintf(dir_text, sizeof(dir_text), "Dir: %.2f, %.2f, %.2f ", dir.x, dir.y, dir.z);
+        SDL_snprintf(vel_text, sizeof(vel_text), "Vel: %.2f", vel);
+
         window_update_overlay(&client->win, "fps", fps_text);
+        window_update_overlay(&client->win, "dir", dir_text);
+        window_update_overlay(&client->win, "vel", vel_text);
 
         fps_ui_ticks_accum = 0;
         fps_ui_frame_count = 0;
@@ -148,13 +161,6 @@ bool client_run(Client *client)
     if (client->player) {
         if (is_state(&client->player->entity, SLIDING)) {
             client->player->eye_offset.y = 0.2f;
-
-            Vec3 test = camera_forward(&client->player_camera);
-            test.y = 0;
-            vec3_normalize_inplace(&test);
-
-            client->player->eye_offset.x = test.x * 0.5f;
-            client->player->eye_offset.z = test.z * 0.5f;
 
         }
         else if (is_state(&client->player->entity, GLIDING)) {
@@ -259,11 +265,12 @@ void client_input_test(Client* client, InputHandle *player_input, const Camera* 
     client->player->movement.jump_queued = player_input->kb_state[SDL_SCANCODE_SPACE];
     client->player->movement.slide_queued = player_input->kb_state[SDL_SCANCODE_LCTRL];
 
+    /*
     if (player_input->kb_state[SDL_SCANCODE_R]) {
         Vec3 boost_vec = camera_forward(player_camera);
         vec3_multiply_inplace(&boost_vec, 1000.0f);
         vec3_add_inplace(&client->player->entity.force, &boost_vec);
-    }
+    } */
 
     static bool mb1_was_down = false;
     bool mb1_down = (mb.mb & SDL_BUTTON_LMASK) != 0;

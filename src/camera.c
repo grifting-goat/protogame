@@ -13,7 +13,7 @@ void camera_init(Camera* cam) {
     cam->fov = 103.0f;
     cam->aspect = 16.0f / 9.0f;
     cam->near_plane = 0.05f;
-    cam->far_plane = 250.0f;
+    cam->far_plane = 5000.0f;
     cam->mode = 1;
     cam->offset_vector = (Vec3){0.0f, 0.0f, 0.0f};
 

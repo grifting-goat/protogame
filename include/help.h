@@ -17,10 +17,10 @@
 static inline Model temp_create_plane(void)
 {
     Vertex ground_vertices[] = {
-        {{-50.0f, 0.0f, -50.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 50.0f, 0.0f, -50.0f}, {0.0f, 1.0f, 0.0f}, {50.0f, 0.0f}},
-        {{ 50.0f, 0.0f,  50.0f}, {0.0f, 1.0f, 0.0f}, {50.0f, 50.0f}},
-        {{-50.0f, 0.0f,  50.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 50.0f}}
+        {{-500.0f, 0.0f, -500.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ 500.0f, 0.0f, -500.0f}, {0.0f, 1.0f, 0.0f}, {500.0f, 0.0f}},
+        {{ 500.0f, 0.0f,  500.0f}, {0.0f, 1.0f, 0.0f}, {500.0f, 500.0f}},
+        {{-500.0f, 0.0f,  500.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 500.0f}}
     };
     uint32_t ground_indices[] = {0, 1, 2, 2, 3, 0};
 
@@ -111,6 +111,71 @@ static inline Model temp_create_pyramid(void)
 }
 
 // Creates a cube mesh
+static inline Model temp_create_skybox(void)
+{
+    const float h = 500.0f;
+    const float u0 = 0.0f;
+    const float u1 = 0.25f;
+    const float u2 = 0.50f;
+    const float u3 = 0.75f;
+    const float u4 = 1.00f;
+    const float v0 = 0.0f;
+    const float v1 = 1.0f / 3.0f;
+    const float v2 = 2.0f / 3.0f;
+    const float v3 = 1.0f;
+
+    Vertex cube_vertices[] = {
+        // -Z face (front)
+        {{-h, -h, -h}, { 0.0f,  0.0f, -1.0f}, {u1, v1}},
+        {{ h, -h, -h}, { 0.0f,  0.0f, -1.0f}, {u2, v1}},
+        {{ h,  h, -h}, { 0.0f,  0.0f, -1.0f}, {u2, v2}},
+        {{-h,  h, -h}, { 0.0f,  0.0f, -1.0f}, {u1, v2}},
+        // +Z face (back)
+        {{-h, -h,  h}, { 0.0f,  0.0f,  1.0f}, {u4, v1}},
+        {{ h, -h,  h}, { 0.0f,  0.0f,  1.0f}, {u3, v1}},
+        {{ h,  h,  h}, { 0.0f,  0.0f,  1.0f}, {u3, v2}},
+        {{-h,  h,  h}, { 0.0f,  0.0f,  1.0f}, {u4, v2}},
+        // -X face (left)
+        {{-h, -h, -h}, {-1.0f,  0.0f,  0.0f}, {u1, v1}},
+        {{-h,  h, -h}, {-1.0f,  0.0f,  0.0f}, {u1, v2}},
+        {{-h,  h,  h}, {-1.0f,  0.0f,  0.0f}, {u0, v2}},
+        {{-h, -h,  h}, {-1.0f,  0.0f,  0.0f}, {u0, v1}},
+        // +X face (right)
+        {{ h, -h, -h}, { 1.0f,  0.0f,  0.0f}, {u2, v1}},
+        {{ h,  h, -h}, { 1.0f,  0.0f,  0.0f}, {u2, v2}},
+        {{ h,  h,  h}, { 1.0f,  0.0f,  0.0f}, {u3, v2}},
+        {{ h, -h,  h}, { 1.0f,  0.0f,  0.0f}, {u3, v1}},
+        // -Y face (bottom)
+        {{-h, -h, -h}, { 0.0f, -1.0f,  0.0f}, {u1, v1}},
+        {{ h, -h, -h}, { 0.0f, -1.0f,  0.0f}, {u1, v0}},
+        {{ h, -h,  h}, { 0.0f, -1.0f,  0.0f}, {u2, v0}},
+        {{-h, -h,  h}, { 0.0f, -1.0f,  0.0f}, {u2, v1}},
+        // +Y face (top)
+        {{-h,  h, -h}, { 0.0f,  1.0f,  0.0f}, {u1, v2}},
+        {{ h,  h, -h}, { 0.0f,  1.0f,  0.0f}, {u2, v2}},
+        {{ h,  h,  h}, { 0.0f,  1.0f,  0.0f}, {u2, v3}},
+        {{-h,  h,  h}, { 0.0f,  1.0f,  0.0f}, {u1, v3}}
+    };
+
+    uint32_t cube_indices[] = {
+        0,1,2,2,3,0,
+        4,5,6,6,7,4,
+        8,9,10,10,11,8,
+        12,13,14,14,15,12,
+        16,17,18,18,19,16,
+        20,21,22,22,23,20
+    };
+
+    Model cube;
+    model_create(&cube,
+                 cube_vertices, 24,
+                 cube_indices, 36,
+                 "sky.png");
+
+    return cube;
+}
+
+
 static inline Model temp_create_cube(void)
 {
     Vertex cube_vertices[] = {
