@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include "stb_ds.h"
 
-
+#include "states.h"
 
 bool level_create(Level* level, uint32_t tick_rate) {
     if (!level) return false;
@@ -35,6 +35,8 @@ bool level_update(Level* level, float delta_time) {
     } else {
         physics_step(level, delta_time);
     }
+
+    
 
     return true;
 }
@@ -89,3 +91,5 @@ void level_destroy(Level* level) {
     hmfree(level->player_map);
     level->player_map = NULL;
 }
+
+

@@ -47,11 +47,19 @@ bool server_run(Server* server) {
     
 
     send_time_accum += frame_ticks;
-    const Uint64 send_interval = server->level.perf_freq / 64;
+    const Uint64 send_interval = server->level.perf_freq / server->level.tick_rate;
     while (send_time_accum >= send_interval) {
 
         for (int i = 0; i < hmlen(server->level.player_map); i++) {
-            Packet_pos payload = {PCKT_SERVER_POS, server->level.player_map[i].key, server->level.player_map[i].value.entity.position, server->level.player_map[i].value.entity.velocity, server->level.player_map[i].value.entity.states};
+            Packet_state payload = {
+                PCKT_SERVER_STATE,
+                server->level.player_map[i].key,
+                server->level.player_map[i].value.entity.position,
+                server->level.player_map[i].value.entity.velocity,
+                server->level.player_map[i].value.movement.cam_dir,
+                server->level.player_map[i].value.entity.states,
+                server->level.player_map[i].value.entity.health
+            };
             ENetPacket* packet = enet_packet_create(
                 &payload,
                 sizeof(payload),
@@ -157,14 +165,24 @@ void server_enet_poll(Server* s) {
                         }
                     }
 
-                    if (packet_type == PCKT_CLIENT_POS && event.packet->dataLength == sizeof(Packet_pos)) {
-                        const Packet_pos* pos = (const Packet_pos*)event.packet->data;
+                    if (packet_type == PCKT_CLIENT_STATE && event.packet->dataLength == sizeof(Packet_state)) {
+                        const Packet_state* pos = (const Packet_state*)event.packet->data;
                         int idx = hmgeti(s->level.player_map, pos->server_id);
                         if (idx != -1) {
                             s->level.player_map[idx].value.entity.position = pos->pos;
                             s->level.player_map[idx].value.entity.velocity= pos->vel;
+                            s->level.player_map[idx].value.movement.cam_dir = pos->cam_dir;
                             s->level.player_map[idx].value.entity.states = pos->state;
                         }
+                    }
+
+                    if (packet_type == PCKT_SHOOT && event.packet->dataLength == sizeof(Packet_shoot)) {
+                        const Packet_shoot* pos = (const Packet_shoot*)event.packet->data;
+                        int idx = hmgeti(s->level.player_map, pos->server_id);
+                        if (idx != -1) {
+                            s->level.player_map[idx].value.shoot_queued = true;
+                        }
+
                     }
 
                 }

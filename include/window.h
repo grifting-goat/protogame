@@ -11,6 +11,11 @@ typedef struct {
 } OverlayTextMapEntry;
 
 typedef struct {
+    const char* key;
+    OverlayImage value;
+} OverlayImageMapEntry;
+
+typedef struct {
     SDL_Window* window;
     SDL_GLContext gl_context;
     int width;
@@ -18,6 +23,7 @@ typedef struct {
     bool fullscreen;
 
     OverlayTextMapEntry* overlay_text_map;
+    OverlayImageMapEntry* overlay_image_map;
 
 } Window;
 
@@ -32,6 +38,10 @@ void window_toggle_fullscreen(Window* win);
 bool window_add_overlay(Window* win, const char* key, const char* text, int x, int y);
 
 bool window_update_overlay(Window* win, const char* key, const char* text);
+
+bool window_add_overlay_image(Window* win, const char* key, const char* image_path, int x, int y);
+
+bool window_update_overlay_image(Window* win, const char* key, int x, int y);
 
 void window_render_overlay(Window* win);
 

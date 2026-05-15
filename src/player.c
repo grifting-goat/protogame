@@ -1,5 +1,7 @@
 #include "player.h"
 
+#include "states.h"
+
 Player player_create() {
     Player p;
     entity_create_default(&p.entity);
@@ -22,6 +24,9 @@ Player player_create() {
     p.movement.slide_friction = 0.5f;
     p.movement.slide_redirection = 0.4f;
     p.movement.glide_redirection = 0.8f;
+
+    clear_state(&p.entity, DEAD);
+    
 
     p.shoot_queued = false;
     return p;

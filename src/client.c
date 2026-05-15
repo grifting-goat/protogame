@@ -2,6 +2,7 @@
 #include <glad/glad.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 #include "packet.h"
 #include "stb_ds.h"
 #include "states.h"
@@ -65,6 +66,9 @@ bool client_startup(Client *client, const char* host)
     window_add_overlay(&client->win, "fps", "FPS: 0", 20, 10);
     window_add_overlay(&client->win, "dir", "Dir: 0,0", 20, 50);
     window_add_overlay(&client->win, "vel", "Vel: 0", 20, 90);
+    window_add_overlay(&client->win, "hp", "HP: 0", 20, 950);
+
+    window_add_overlay_image(&client->win, "crosshair", "dot.png", (client->win.width/ 2) - 10, (client->win.height / 2) - 10);
 
     return true;
 }
@@ -106,21 +110,29 @@ bool client_run(Client *client)
     fps_ui_ticks_accum += frame_ticks;
     fps_ui_frame_count++;
 
-    if (fps_ui_ticks_accum >= (client->level.perf_freq / 4)) {
+    if (fps_ui_ticks_accum >= (client->level.perf_freq / 6)) {
         float seconds = (float)fps_ui_ticks_accum / (float)client->level.perf_freq;
         float fps = seconds > 0.0f ? ((float)fps_ui_frame_count / seconds) : 0.0f;
         float vel = client->player ? vec3_mag(&client->player->entity.velocity) : 0.0f;
+        Vec3 vel3 = client->player ? client->player->entity.velocity : (Vec3){0.0f,0.0f, 0.0f};
         Vec3 dir = client->player ? client->player_camera.angles : (Vec3){0.0f,0.0f, 0.0f};
+        float health = client->player ? client->player->entity.health : 0.0f;
+
         char fps_text[64];
         char vel_text[64];
         char dir_text[64];
+        char health_text[64];
+
         SDL_snprintf(fps_text, sizeof(fps_text), "FPS: %.0f", fps);
-        SDL_snprintf(dir_text, sizeof(dir_text), "Dir: %.2f, %.2f, %.2f ", dir.x, dir.y, dir.z);
-        SDL_snprintf(vel_text, sizeof(vel_text), "Vel: %.2f", vel);
+        SDL_snprintf(dir_text, sizeof(dir_text), "Dir: %.2f, %.2f", dir.x, dir.y);
+        SDL_snprintf(vel_text, sizeof(vel_text), "Vel: %.2f || <%.2f, %.2f, %.2f>", vel, vel3.x, vel3.y, vel3.z);
+
+        SDL_snprintf(health_text, sizeof(fps_text), "hp: %.0f", health);
 
         window_update_overlay(&client->win, "fps", fps_text);
         window_update_overlay(&client->win, "dir", dir_text);
         window_update_overlay(&client->win, "vel", vel_text);
+        window_update_overlay(&client->win, "hp", health_text);
 
         fps_ui_ticks_accum = 0;
         fps_ui_frame_count = 0;
@@ -134,9 +146,17 @@ bool client_run(Client *client)
     }
 
     send_time_accum += frame_ticks;
-    const Uint64 send_interval = client->level.perf_freq / 64;
+    const Uint64 send_interval = client->level.perf_freq / client->level.tick_rate;
     while (client->enet_connected && client->player && send_time_accum >= send_interval) {
-        Packet_pos payload = {PCKT_CLIENT_POS, client->server_id, client->player->entity.position, client->player->entity.velocity, client->player->entity.states};
+        Packet_state payload = {
+            PCKT_CLIENT_STATE,
+            client->server_id,
+            client->player->entity.position,
+            client->player->entity.velocity,
+            camera_forward(&client->player_camera),
+            client->player->entity.states,
+            client->player->entity.health
+        };
         ENetPacket* packet = enet_packet_create(
             &payload,
             sizeof(payload),
@@ -160,17 +180,39 @@ bool client_run(Client *client)
 
     if (client->player) {
         if (is_state(&client->player->entity, SLIDING)) {
-            client->player->eye_offset.y = 0.2f;
+            const float target_eye_y = 0.2f;
+            const float snap_epsilon = 0.05f;
+
+            float delta = target_eye_y - client->player->eye_offset.y;
+            if (fabsf(delta) <= snap_epsilon) {
+                client->player->eye_offset.y = target_eye_y;
+            } else {
+                client->player->eye_offset.y += 8.0f * delta * dt;
+            }
+            
 
         }
         else if (is_state(&client->player->entity, GLIDING)) {
             //client->player->eye_offset.y = 0.0f;
         } else {
-            client->player->eye_offset = (Vec3){0.0f, 0.0f, 0.0f};
+            const float target_eye_y = 1.0f;
+            const float snap_epsilon = 0.05f;
+
+            float delta = target_eye_y - client->player->eye_offset.y;
+            if (fabsf(delta) <= snap_epsilon) {
+                client->player->eye_offset.y = target_eye_y;
+            } else {
+                client->player->eye_offset.y += 8.0f * delta * dt;
+            }
         }
         client->player_camera.offset_vector = client->player->eye_offset;
+
+
+        if (is_state(&client->player->entity, DEAD)) {
+            return false;
+        }
     }
-    
+
 
     client_render(client);
     
@@ -392,16 +434,21 @@ void client_enet_poll(Client* client) {
                         }
                     }
 
-                    if (packet_type == PCKT_SERVER_POS && event.packet->dataLength >= sizeof(Packet_pos)) {
-                        const Packet_pos* pos_pack = (const Packet_pos*)event.packet->data;
-                        if (pos_pack->server_id == client->server_id) {
-                            continue;
-                        }
+                    if (packet_type == PCKT_SERVER_STATE && event.packet->dataLength >= sizeof(Packet_state)) {
+                        const Packet_state* pos_pack = (const Packet_state*)event.packet->data;
                         int idx = hmgeti(client->level.player_map, pos_pack->server_id);
                         if (idx != -1) {
-                            client->level.player_map[idx].value.entity.position = pos_pack->pos;
-                            client->level.player_map[idx].value.entity.velocity = pos_pack->vel;
-                            client->level.player_map[idx].value.entity.states = pos_pack->state;
+
+                            if (pos_pack->server_id == client->server_id) {
+                                client->level.player_map[idx].value.entity.health = pos_pack->health;
+                            } else {
+                                client->level.player_map[idx].value.entity.position = pos_pack->pos;
+                                client->level.player_map[idx].value.entity.velocity = pos_pack->vel;
+                                client->level.player_map[idx].value.movement.cam_dir = pos_pack->cam_dir;
+                                client->level.player_map[idx].value.entity.states = pos_pack->state;
+                                client->level.player_map[idx].value.entity.health = pos_pack->health;
+
+                            }
                         }
                     }
 
@@ -409,6 +456,14 @@ void client_enet_poll(Client* client) {
                         const Packet_player* player_pack = (const Packet_player*)event.packet->data;
                         if (hmgeti(client->level.player_map, player_pack->server_id) == -1) {
                             level_add_player(&client->level, player_pack->uqid, player_pack->server_id);
+                        }
+                    }
+
+                    if (packet_type == PCKT_SERVER_AUTH_KNOCK && event.packet->dataLength >= sizeof(Packet_server_auth_knockback)) {
+                        const Packet_server_auth_knockback* player_knock = (const Packet_server_auth_knockback*)event.packet->data;
+                        int idx = hmgeti(client->level.player_map, player_knock->server_id);
+                        if (idx != -1) {
+                            vec3_add_inplace(&client->level.player_map[idx].value.entity.velocity, &player_knock->vel_knock);
                         }
                     }
 

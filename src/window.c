@@ -16,7 +16,9 @@ bool window_create(Window* win, const char* title, int width, int height, bool f
     win->height = height;
     win->fullscreen = fullscreen;
     win->overlay_text_map = NULL;
+    win->overlay_image_map = NULL;
     sh_new_strdup(win->overlay_text_map);
+    sh_new_strdup(win->overlay_image_map);
     
     //create window with OpenGL support
     win->window = SDL_CreateWindow(
@@ -99,11 +101,43 @@ bool window_update_overlay(Window* win, const char* key, const char* text) {
     return overlay_create_text(ov, text, ov->x, ov->y);
 }
 
+bool window_add_overlay_image(Window* win, const char* key, const char* image_path, int x, int y) {
+    if (!win || !key || !image_path) return false;
+
+    OverlayImage img;
+    memset(&img, 0, sizeof(img));
+    if (!overlay_create_image(&img, image_path, x, y)) return false;
+
+    int idx = shgeti(win->overlay_image_map, key);
+    if (idx != -1) {
+        overlay_destroy_image(&win->overlay_image_map[idx].value);
+        win->overlay_image_map[idx].value = img;
+    } else {
+        shput(win->overlay_image_map, key, img);
+    }
+
+    return true;
+}
+
+bool window_update_overlay_image(Window* win, const char* key, int x, int y) {
+    if (!win || !key) return false;
+    int idx = shgeti(win->overlay_image_map, key);
+    if (idx == -1) return false;
+
+    win->overlay_image_map[idx].value.x = x;
+    win->overlay_image_map[idx].value.y = y;
+    return true;
+}
+
 void window_render_overlay(Window* win) {
     if (!win) return;
 
     for (int i = 0; i < shlen(win->overlay_text_map); i++) {
         overlay_render_text(&win->overlay_text_map[i].value, win->width, win->height);
+    }
+
+    for (int i = 0; i < shlen(win->overlay_image_map); i++) {
+        overlay_render_image(&win->overlay_image_map[i].value, win->width, win->height);
     }
 }
 
@@ -120,8 +154,14 @@ void window_destroy(Window* win) {
         overlay_destroy_text(&win->overlay_text_map[i].value);
     }
 
+    for (int i = 0; i < shlen(win->overlay_image_map); i++) {
+        overlay_destroy_image(&win->overlay_image_map[i].value);
+    }
+
     shfree(win->overlay_text_map);
+    shfree(win->overlay_image_map);
     win->overlay_text_map = NULL;
+    win->overlay_image_map = NULL;
     
     if (win->gl_context) {
         SDL_GL_DestroyContext(win->gl_context);

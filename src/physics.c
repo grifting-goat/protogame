@@ -1,9 +1,13 @@
 #include "physics.h"
+#include "client.h"
+#include "server.h"
 #include "level.h"
 #include "stb_ds.h"
 #include "states.h"
 
 #define EPSILON 0.0001f
+#define SHOOT_MAX_RAY_LEN 100.0f
+#define SHOOT_RAY_STEP 0.1f
 
 void physics_p_air_movement(Player* p, float dt);
 void physics_p_ground_movement(Player* p, float dt);
@@ -12,6 +16,7 @@ static void physics_accelerate(Entity* ent, const Vec3* wish_dir, float wish_spe
 static void physics_redirect(Entity* ent, const Vec3* wish_dir, float redirect_rate, float dt);
 static void physics_gliding(Entity* ent, const Vec3* cam_dir, float redirect_rate, float dt);
 static void physics_air_accelerate(Entity* ent, Vec3 wishvel, float wishspeed, float accelerate,  float dt);
+bool check_dead(Entity* ent);
 
 void physics_funny_bounds_check(Entity* ent);
 
@@ -52,13 +57,53 @@ void physics_step(Level* level, float dt) {
         Player* p = &level->player_map[i].value;
         Entity* ent = &level->player_map[i].value.entity;
 
+        check_dead(ent);
+
         if (p->shoot_queued) {
             p->shoot_queued = false;
 
-            Player* hit = ray_check_player_collison(level, p, 100.0f, 0.25f);
+            if (level->client_ref != NULL) {
+                Client* client = level->client_ref;
+                
+                Packet_shoot payload = {
+                    PCKT_SHOOT,
+                    p->server_id
+                };
 
-            if (hit && level->server_ref != NULL) {
+                ENetPacket* packet = enet_packet_create(
+                    &payload,
+                    sizeof(payload),
+                    0
+                );
 
+                enet_peer_send(client->server_peer, 1, packet);
+
+            }
+
+            Player* hit = ray_check_player_collison(level, p, SHOOT_MAX_RAY_LEN, SHOOT_RAY_STEP);
+
+            if (hit && (level->server_ref != NULL)) {
+
+                hit->entity.health -= 10.0f;
+
+                Server* server = level->server_ref;
+
+                Vec3 dir = vec3_subtract(&hit->entity.position, &ent->position);
+                vec3_normalize_inplace(&dir);
+                Vec3 knock = vec3_multiply(&dir, 5.0f);
+                knock.y += 3.0f;
+
+                Packet_server_auth_knockback payload = {
+                    PCKT_SERVER_AUTH_KNOCK,
+                    hit->server_id,
+                    knock
+                };
+                ENetPacket* packet = enet_packet_create(
+                    &payload,
+                    sizeof(payload),
+                    0
+                );
+                enet_host_broadcast(server->e_server, 1, packet);
             }
 
 
@@ -332,7 +377,12 @@ Player* ray_check_player_collison(Level* level, Player* shooter, float max_ray_l
     }
 
     Vec3 dir = shooter->movement.cam_dir;
+    if (vec3_mag_squared(&dir) <= EPSILON) {
+        return NULL;
+    }
+    vec3_normalize_inplace(&dir);
     Vec3 source = shooter->entity.position;
+    vec3_add_inplace(&source, &shooter->eye_offset);
 
     float ray_len = 0.0f;
     Vec3 ray = {0.0f, 0.0f, 0.0f};
@@ -379,4 +429,13 @@ void physics_funny_bounds_check(Entity* ent) {
 
         ent->velocity = backvel;
     }
+}
+
+
+bool check_dead(Entity* ent) {
+    if (ent->health <= 0.0f) {
+        set_state(ent, DEAD);
+        return 1;
+    }
+    return 0;
 }

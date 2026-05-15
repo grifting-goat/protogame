@@ -113,7 +113,7 @@ static inline Model temp_create_pyramid(void)
 // Creates a cube mesh
 static inline Model temp_create_skybox(void)
 {
-    const float h = 500.0f;
+    const float h = 700.0f;
     const float u0 = 0.0f;
     const float u1 = 0.25f;
     const float u2 = 0.50f;
@@ -124,37 +124,56 @@ static inline Model temp_create_skybox(void)
     const float v2 = 2.0f / 3.0f;
     const float v3 = 1.0f;
 
+    const float du = 0.5f / 1100.0f; //fix bug with edges
+    const float dv = 0.5f / 825.0f;
+
+    const float u0p = u0 + du;
+    const float u1m = u1 - du;
+    const float u1p = u1 + du;
+    const float u2m = u2 - du;
+    const float u2p = u2 + du;
+    const float u3m = u3 - du;
+    const float u3p = u3 + du;
+    const float u4m = u4 - du;
+
+    const float v0p = v0 + dv;
+    const float v1m = v1 - dv;
+    const float v1p = v1 + dv;
+    const float v2m = v2 - dv;
+    const float v2p = v2 + dv;
+    const float v3m = v3 - dv;
+
     Vertex cube_vertices[] = {
         // -Z face (front)
-        {{-h, -h, -h}, { 0.0f,  0.0f, -1.0f}, {u1, v1}},
-        {{ h, -h, -h}, { 0.0f,  0.0f, -1.0f}, {u2, v1}},
-        {{ h,  h, -h}, { 0.0f,  0.0f, -1.0f}, {u2, v2}},
-        {{-h,  h, -h}, { 0.0f,  0.0f, -1.0f}, {u1, v2}},
+        {{-h, -h, -h}, { 0.0f,  0.0f, -1.0f}, {u1p, v1p}},
+        {{ h, -h, -h}, { 0.0f,  0.0f, -1.0f}, {u2m, v1p}},
+        {{ h,  h, -h}, { 0.0f,  0.0f, -1.0f}, {u2m, v2m}},
+        {{-h,  h, -h}, { 0.0f,  0.0f, -1.0f}, {u1p, v2m}},
         // +Z face (back)
-        {{-h, -h,  h}, { 0.0f,  0.0f,  1.0f}, {u4, v1}},
-        {{ h, -h,  h}, { 0.0f,  0.0f,  1.0f}, {u3, v1}},
-        {{ h,  h,  h}, { 0.0f,  0.0f,  1.0f}, {u3, v2}},
-        {{-h,  h,  h}, { 0.0f,  0.0f,  1.0f}, {u4, v2}},
+        {{-h, -h,  h}, { 0.0f,  0.0f,  1.0f}, {u4m, v1p}},
+        {{ h, -h,  h}, { 0.0f,  0.0f,  1.0f}, {u3p, v1p}},
+        {{ h,  h,  h}, { 0.0f,  0.0f,  1.0f}, {u3p, v2m}},
+        {{-h,  h,  h}, { 0.0f,  0.0f,  1.0f}, {u4m, v2m}},
         // -X face (left)
-        {{-h, -h, -h}, {-1.0f,  0.0f,  0.0f}, {u1, v1}},
-        {{-h,  h, -h}, {-1.0f,  0.0f,  0.0f}, {u1, v2}},
-        {{-h,  h,  h}, {-1.0f,  0.0f,  0.0f}, {u0, v2}},
-        {{-h, -h,  h}, {-1.0f,  0.0f,  0.0f}, {u0, v1}},
+        {{-h, -h, -h}, {-1.0f,  0.0f,  0.0f}, {u1m, v1p}},
+        {{-h,  h, -h}, {-1.0f,  0.0f,  0.0f}, {u1m, v2m}},
+        {{-h,  h,  h}, {-1.0f,  0.0f,  0.0f}, {u0p, v2m}},
+        {{-h, -h,  h}, {-1.0f,  0.0f,  0.0f}, {u0p, v1p}},
         // +X face (right)
-        {{ h, -h, -h}, { 1.0f,  0.0f,  0.0f}, {u2, v1}},
-        {{ h,  h, -h}, { 1.0f,  0.0f,  0.0f}, {u2, v2}},
-        {{ h,  h,  h}, { 1.0f,  0.0f,  0.0f}, {u3, v2}},
-        {{ h, -h,  h}, { 1.0f,  0.0f,  0.0f}, {u3, v1}},
+        {{ h, -h, -h}, { 1.0f,  0.0f,  0.0f}, {u2p, v1p}},
+        {{ h,  h, -h}, { 1.0f,  0.0f,  0.0f}, {u2p, v2m}},
+        {{ h,  h,  h}, { 1.0f,  0.0f,  0.0f}, {u3m, v2m}},
+        {{ h, -h,  h}, { 1.0f,  0.0f,  0.0f}, {u3m, v1p}},
         // -Y face (bottom)
-        {{-h, -h, -h}, { 0.0f, -1.0f,  0.0f}, {u1, v1}},
-        {{ h, -h, -h}, { 0.0f, -1.0f,  0.0f}, {u1, v0}},
-        {{ h, -h,  h}, { 0.0f, -1.0f,  0.0f}, {u2, v0}},
-        {{-h, -h,  h}, { 0.0f, -1.0f,  0.0f}, {u2, v1}},
+        {{-h, -h, -h}, { 0.0f, -1.0f,  0.0f}, {u1p, v1m}},
+        {{ h, -h, -h}, { 0.0f, -1.0f,  0.0f}, {u1p, v0p}},
+        {{ h, -h,  h}, { 0.0f, -1.0f,  0.0f}, {u2m, v0p}},
+        {{-h, -h,  h}, { 0.0f, -1.0f,  0.0f}, {u2m, v1m}},
         // +Y face (top)
-        {{-h,  h, -h}, { 0.0f,  1.0f,  0.0f}, {u1, v2}},
-        {{ h,  h, -h}, { 0.0f,  1.0f,  0.0f}, {u2, v2}},
-        {{ h,  h,  h}, { 0.0f,  1.0f,  0.0f}, {u2, v3}},
-        {{-h,  h,  h}, { 0.0f,  1.0f,  0.0f}, {u1, v3}}
+        {{-h,  h, -h}, { 0.0f,  1.0f,  0.0f}, {u1p, v2p}},
+        {{ h,  h, -h}, { 0.0f,  1.0f,  0.0f}, {u2m, v2p}},
+        {{ h,  h,  h}, { 0.0f,  1.0f,  0.0f}, {u2m, v3m}},
+        {{-h,  h,  h}, { 0.0f,  1.0f,  0.0f}, {u1p, v3m}}
     };
 
     uint32_t cube_indices[] = {
@@ -171,7 +190,6 @@ static inline Model temp_create_skybox(void)
                  cube_vertices, 24,
                  cube_indices, 36,
                  "sky.png");
-
     return cube;
 }
 
