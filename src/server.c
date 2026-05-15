@@ -11,6 +11,7 @@ bool server_startup(Server* server){
     if (!server) return false;
     if (!level_create(&server->level, 128)) return false;
     server->level.server = true;
+    server->level.server_ref = server;
 
     if (!server_enet_startup(server)) return false;
 
@@ -50,7 +51,7 @@ bool server_run(Server* server) {
     while (send_time_accum >= send_interval) {
 
         for (int i = 0; i < hmlen(server->level.player_map); i++) {
-            Packet_pos payload = {PCKT_SERVER_POS, server->level.player_map[i].key, server->level.player_map[i].value.entity.position, server->level.player_map[i].value.entity.velocity};
+            Packet_pos payload = {PCKT_SERVER_POS, server->level.player_map[i].key, server->level.player_map[i].value.entity.position, server->level.player_map[i].value.entity.velocity, server->level.player_map[i].value.entity.states};
             ENetPacket* packet = enet_packet_create(
                 &payload,
                 sizeof(payload),
@@ -162,6 +163,7 @@ void server_enet_poll(Server* s) {
                         if (idx != -1) {
                             s->level.player_map[idx].value.entity.position = pos->pos;
                             s->level.player_map[idx].value.entity.velocity= pos->vel;
+                            s->level.player_map[idx].value.entity.states = pos->state;
                         }
                     }
 

@@ -40,6 +40,8 @@ typedef struct {
 
     Player_movement movement;
 
+    bool shoot_queued; //temp
+
 } Player;
 
 Player player_create();

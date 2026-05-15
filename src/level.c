@@ -19,6 +19,8 @@ bool level_create(Level* level, uint32_t tick_rate) {
     level->ent_map = NULL;
     level->player_map = NULL;
     level->server = false;
+    level->server_ref = NULL;
+    level->client_ref = NULL;
 
     physics_init(level);
     

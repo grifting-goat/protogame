@@ -12,6 +12,9 @@
 #include "help.h"
 #include "physics.h"
 
+typedef struct Server Server;
+typedef struct Client Client;
+
 typedef struct {
     uint32_t key;
     Player value;
@@ -42,6 +45,9 @@ typedef struct Level {
     uint32_t model_count;
 
     PhysicsWorld physics;
+
+    Server* server_ref;
+    Client* client_ref;
 
 } Level;
 

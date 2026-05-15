@@ -20,6 +20,7 @@ typedef struct {
     uint32_t server_id;
     Vec3 pos;
     Vec3 vel;
+    uint32_t state;
     
 } Packet_pos;
 

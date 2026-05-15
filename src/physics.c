@@ -12,6 +12,8 @@ static void physics_accelerate(Entity* ent, const Vec3* wish_dir, float wish_spe
 static void physics_redirect(Entity* ent, const Vec3* wish_dir, float redirect_rate, float dt);
 static void physics_gliding(Entity* ent, const Vec3* cam_dir, float redirect_rate, float dt);
 
+Player* ray_check_player_collison(Level* level, Player* shooter, float max_ray_len, float step);
+
 
 void physics_init(Level* level) {
     PhysicsWorld* world = &level->physics;
@@ -42,72 +44,84 @@ void physics_world_update(Level* level, float dt) {
 void physics_step(Level* level, float dt) {
     PhysicsWorld* world = &level->physics;
 
-        for (int i = 0; i < hmlen(level->player_map); i++) {
-            Player* p = &level->player_map[i].value;
-            Entity* ent = &level->player_map[i].value.entity;
 
-            physics_update_states(level, ent);
+    for (int i = 0; i < hmlen(level->player_map); i++) {
+        Player* p = &level->player_map[i].value;
+        Entity* ent = &level->player_map[i].value.entity;
 
-            if (is_state(ent, GROUNDED)) {
-                if(ent->position.y < ent->radius) {
-                    ent->position.y = ent->radius;
-                    ent->velocity.y = 0.0f;
-                }
+        if (p->shoot_queued) {
+            p->shoot_queued = false;
 
-                if (p->movement.jump_queued) {
-                    p->movement.jump_queued = false;
-                    ent->velocity.y += p->movement.jump_vel;
-                }
+            Player* hit = ray_check_player_collison(level, p, 100.0f, 0.25f);
 
-                float horizonal_spd_mag = (ent->velocity.x * ent->velocity.x) + (ent->velocity.z * ent->velocity.z);
-                if (p->movement.slide_queued && (horizonal_spd_mag > (p->movement.walk_speed * p->movement.walk_speed))) {
-                    set_state(ent, SLIDING);
-                } else {
-                    clear_state(ent, SLIDING);
-                }
+            if (hit && level->server_ref != NULL) {
 
-                physics_p_ground_movement(p, dt);
-
-            } else if (is_state(ent, IN_AIR)) {
-
-                if (p->movement.jump_queued && ent->velocity.y < 0.0f) {
-                    p->movement.jump_queued = false;
-                    set_state(ent, GLIDING);
-
-                    Vec3 gravity_force = vec3_multiply(&world->gravity, (float)ent->mass / 5.0f);
-                    vec3_add_inplace(&ent->force, &gravity_force);
-                } else {
-                    clear_state(ent, GLIDING);
-                    
-                    Vec3 gravity_force = vec3_multiply(&world->gravity, (float)ent->mass);
-                    vec3_add_inplace(&ent->force, &gravity_force);
-                }
-
-                physics_p_air_movement(p, dt);
             }
 
-            //apply forces
-            Vec3 delta_vel = vec3_multiply(&ent->force, dt / (float)ent->mass);
-            vec3_add_inplace(&ent->velocity, &delta_vel);
 
-            Vec3 delta_pos = vec3_multiply(&ent->velocity, dt);
-            vec3_add_inplace(&ent->position, &delta_pos);
-
-            if (ent->position.y < ent->radius) {
-                ent->position.y = ent->radius;
-                if (ent->velocity.y < 0.0f) {
-                    ent->velocity.y = 0.0f;
-                }
-            }
-
-            if (fabsf(ent->velocity.x) < EPSILON) ent->velocity.x = 0.0f;
-            if (fabsf(ent->velocity.y) < EPSILON) ent->velocity.y = 0.0f;
-            if (fabsf(ent->velocity.z) < EPSILON) ent->velocity.z = 0.0f;
-
-            physics_update_states(level, ent);
-
-            ent->force = (Vec3){0.0f, 0.0f, 0.0f};
         }
+
+        physics_update_states(level, ent);
+
+        if (is_state(ent, GROUNDED)) {
+            if(ent->position.y < ent->radius) {
+                ent->position.y = ent->radius;
+                ent->velocity.y = 0.0f;
+            }
+
+            if (p->movement.jump_queued) {
+                p->movement.jump_queued = false;
+                ent->velocity.y += p->movement.jump_vel;
+            }
+
+            float horizonal_spd_mag = (ent->velocity.x * ent->velocity.x) + (ent->velocity.z * ent->velocity.z);
+            if (p->movement.slide_queued && (horizonal_spd_mag > (p->movement.walk_speed * p->movement.walk_speed))) {
+                set_state(ent, SLIDING);
+            } else {
+                clear_state(ent, SLIDING);
+            }
+
+            physics_p_ground_movement(p, dt);
+
+        } else if (is_state(ent, IN_AIR)) {
+
+            if (p->movement.jump_queued && ent->velocity.y < 6.0f) {
+                set_state(ent, GLIDING);
+
+                Vec3 gravity_force = vec3_multiply(&world->gravity, (float)ent->mass / 5.0f);
+                vec3_add_inplace(&ent->force, &gravity_force);
+            } else {
+                clear_state(ent, GLIDING);
+                
+                Vec3 gravity_force = vec3_multiply(&world->gravity, (float)ent->mass);
+                vec3_add_inplace(&ent->force, &gravity_force);
+            }
+
+            physics_p_air_movement(p, dt);
+        }
+
+        //apply forces
+        Vec3 delta_vel = vec3_multiply(&ent->force, dt / (float)ent->mass);
+        vec3_add_inplace(&ent->velocity, &delta_vel);
+
+        Vec3 delta_pos = vec3_multiply(&ent->velocity, dt);
+        vec3_add_inplace(&ent->position, &delta_pos);
+
+        if (ent->position.y < ent->radius) {
+            ent->position.y = ent->radius;
+            if (ent->velocity.y < 0.0f) {
+                ent->velocity.y = 0.0f;
+            }
+        }
+
+        if (fabsf(ent->velocity.x) < EPSILON) ent->velocity.x = 0.0f;
+        if (fabsf(ent->velocity.y) < EPSILON) ent->velocity.y = 0.0f;
+        if (fabsf(ent->velocity.z) < EPSILON) ent->velocity.z = 0.0f;
+
+        physics_update_states(level, ent);
+
+        ent->force = (Vec3){0.0f, 0.0f, 0.0f};
+    }
 
 }
 
@@ -152,7 +166,6 @@ void physics_p_ground_movement(Player* p, float dt) {
     if (is_state(ent, SLIDING)) {
         physics_redirect(ent, &m->cam_dir, m->slide_redirection, dt);
     } else {
-
         if (vec3_mag_squared(&m->wish_dir) <= EPSILON) {return;}
         float spd = is_state(ent, RUNNING) ? m->run_speed : m->walk_speed;
         float accel = is_state(ent, RUNNING) ? m->ground_acceleration_run : m->ground_acceleration_walk;
@@ -271,5 +284,48 @@ static void physics_gliding(Entity* ent, const Vec3* cam_dir, float redirect_rat
     ent->velocity.y = blended.y * preserve_scale;
     ent->velocity.z = blended.z * preserve_scale;
 
-    physics_accelerate(ent, cam_dir, 30.0f, 0.2f, dt);
+    physics_accelerate(ent, cam_dir, 20.0f, 0.1f, dt);
+}
+
+
+
+
+Player* ray_check_player_collison(Level* level, Player* shooter, float max_ray_len, float step) {
+    if (!level || step <= EPSILON || max_ray_len <= 0.0f) {
+        return NULL;
+    }
+
+    Vec3 dir = shooter->movement.cam_dir;
+    Vec3 source = shooter->entity.position;
+
+    float ray_len = 0.0f;
+    Vec3 ray = {0.0f, 0.0f, 0.0f};
+    Vec3 ray_step = vec3_multiply(&dir, step);
+
+    while (ray_len <= max_ray_len) {
+        ray_len += step;
+        vec3_add_inplace(&ray, &ray_step);
+
+        Vec3 test_coords = vec3_add(&ray, &source);
+        
+        for (int i = 0; i < hmlen(level->player_map); i++) {
+            Player* p = &level->player_map[i].value;
+
+            if (shooter && (p == shooter || p->server_id == shooter->server_id)) {
+                continue;
+            }
+
+            float hit_radius = p->entity.radius;
+            Vec3 to_player = vec3_subtract(&test_coords, &p->entity.position);
+            float dist_sq = vec3_mag_squared(&to_player);
+
+            if (dist_sq <= (hit_radius * hit_radius)) {
+                return p;
+            }
+
+        }
+
+    }
+
+    return NULL;
 }

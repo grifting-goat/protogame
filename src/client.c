@@ -52,6 +52,8 @@ bool client_startup(Client *client, const char* host)
 
     client->unique_id = ((uint64_t)(uint32_t)rand() << 32) | (uint64_t)(uint32_t)rand();
 
+    client->level.client_ref = client;
+
     if (!client_enet_startup(client))
         return false;
 
@@ -121,7 +123,7 @@ bool client_run(Client *client)
     send_time_accum += frame_ticks;
     const Uint64 send_interval = client->level.perf_freq / 64;
     while (client->enet_connected && client->player && send_time_accum >= send_interval) {
-        Packet_pos payload = {PCKT_CLIENT_POS, client->server_id, client->player->entity.position, client->player->entity.velocity};
+        Packet_pos payload = {PCKT_CLIENT_POS, client->server_id, client->player->entity.position, client->player->entity.velocity, client->player->entity.states};
         ENetPacket* packet = enet_packet_create(
             &payload,
             sizeof(payload),
@@ -140,6 +142,29 @@ bool client_run(Client *client)
 
     if (!level_update(&client->level, dt))
         return false;
+
+
+
+    if (client->player) {
+        if (is_state(&client->player->entity, SLIDING)) {
+            client->player->eye_offset.y = 0.2f;
+
+            Vec3 test = camera_forward(&client->player_camera);
+            test.y = 0;
+            vec3_normalize_inplace(&test);
+
+            client->player->eye_offset.x = test.x * 0.5f;
+            client->player->eye_offset.z = test.z * 0.5f;
+
+        }
+        else if (is_state(&client->player->entity, GLIDING)) {
+            //client->player->eye_offset.y = 0.0f;
+        } else {
+            client->player->eye_offset = (Vec3){0.0f, 0.0f, 0.0f};
+        }
+        client->player_camera.offset_vector = client->player->eye_offset;
+    }
+    
 
     client_render(client);
     
@@ -171,7 +196,7 @@ void client_render(Client *client) {
 
 
     for (int i = 0; i < client->level.model_count; i++) {
-        Vec3 thing = {0.0f, -2.0f, 0.0f};
+        Vec3 thing = {0.0f, 0.0f, 0.0f};
         render_model(&client->level.models[i], thing, basic_shader, temp_color[6]);
     }
 
@@ -222,6 +247,7 @@ Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) 
 
 void client_input_test(Client* client, InputHandle *player_input, const Camera* player_camera) {
     Vec3 dir = {0.0f, 0.0f, 0.0f};
+    dMouse mb = input_mouse(player_input);
 
     if (player_input->kb_state[SDL_SCANCODE_W]) dir.z += 1.0f;
     if (player_input->kb_state[SDL_SCANCODE_S]) dir.z -= 1.0f;
@@ -233,6 +259,16 @@ void client_input_test(Client* client, InputHandle *player_input, const Camera* 
     client->player->movement.jump_queued = player_input->kb_state[SDL_SCANCODE_SPACE];
     client->player->movement.slide_queued = player_input->kb_state[SDL_SCANCODE_LCTRL];
 
+    if (player_input->kb_state[SDL_SCANCODE_R]) {
+        Vec3 boost_vec = camera_forward(player_camera);
+        vec3_multiply_inplace(&boost_vec, 1000.0f);
+        vec3_add_inplace(&client->player->entity.force, &boost_vec);
+    }
+
+    static bool mb1_was_down = false;
+    bool mb1_down = (mb.mb & SDL_BUTTON_LMASK) != 0;
+    client->player->shoot_queued = (mb1_down && !mb1_was_down);
+    mb1_was_down = mb1_down;
 
     Vec3 forward = camera_forward(player_camera);
     Vec3 right = camera_right(player_camera);
@@ -358,6 +394,7 @@ void client_enet_poll(Client* client) {
                         if (idx != -1) {
                             client->level.player_map[idx].value.entity.position = pos_pack->pos;
                             client->level.player_map[idx].value.entity.velocity = pos_pack->vel;
+                            client->level.player_map[idx].value.entity.states = pos_pack->state;
                         }
                     }
 

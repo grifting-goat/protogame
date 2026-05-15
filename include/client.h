@@ -10,7 +10,7 @@
 #include "camera.h"
 
 
-typedef struct {
+typedef struct Client {
     Window win;
     Level level;
     Player* player;

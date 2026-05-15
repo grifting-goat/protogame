@@ -11,7 +11,7 @@
 
 extern const char* server_tag;
 
-typedef struct {
+typedef struct Server {
     Level level;
 
     ENetAddress address;

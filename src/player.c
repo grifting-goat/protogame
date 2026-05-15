@@ -6,7 +6,7 @@ Player player_create() {
     p.player_name = "Grift";
     p.eye_offset = (Vec3){0.0f,1.0f,0.0f}; //how high the camera is placed over the centroid
     p.entity.mass = 70.0f;   
-
+    p.entity.radius = 1.0f;
     p.movement.wish_dir = (Vec3) {0.0f, 0.0f, 0.0f};
     p.movement.cam_dir = (Vec3) {0.0f, 0.0f, 0.0f};
     p.movement.ground_acceleration_run = 10.0f;
@@ -19,8 +19,10 @@ Player player_create() {
     p.movement.jump_queued = false;
     p.movement.jump_vel = 8.0f;
     p.movement.slide_queued = false;
-    p.movement.slide_friction = 0.3f;
-    p.movement.slide_redirection = 0.3f;
-    p.movement.glide_redirection = 0.7f;
+    p.movement.slide_friction = 0.5f;
+    p.movement.slide_redirection = 0.4f;
+    p.movement.glide_redirection = 0.8f;
+
+    p.shoot_queued = false;
     return p;
 }
