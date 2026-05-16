@@ -50,6 +50,7 @@ bool client_startup(Client *client, const char* host)
     Model skybox = temp_create_skybox();
     level_add_model(&client->level, &ground);
     level_add_model(&client->level, &skybox);
+    
 
     client->player = NULL;
 
@@ -118,7 +119,7 @@ bool client_run(Client *client)
     if (fps_ui_ticks_accum >= (client->level.perf_freq / 6)) {
         float seconds = (float)fps_ui_ticks_accum / (float)client->level.perf_freq;
         float fps = seconds > 0.0f ? ((float)fps_ui_frame_count / seconds) : 0.0f;
-        float vel = client->player ? vec3_mag(&client->player->entity.velocity) : 0.0f;
+        float vel = client->player ? vec3_mag(&(Vec3){client->player->entity.velocity.x, 0.0f, client->player->entity.velocity.z}) : 0.0f;
         Vec3 vel3 = client->player ? client->player->entity.velocity : (Vec3){0.0f,0.0f, 0.0f};
         Vec3 dir = client->player ? client->player_camera.angles : (Vec3){0.0f,0.0f, 0.0f};
         float health = client->player ? client->player->entity.health : 0.0f;
@@ -172,7 +173,8 @@ bool client_run(Client *client)
         send_time_accum -= send_interval;
     }
     if (client->player) {
-        client->player->movement.cam_dir = camera_forward(&client->player_camera);
+        client->player->movement.cam_forward = camera_forward(&client->player_camera);
+        client->player->movement.cam_right = camera_right(&client->player_camera);
         client_input_test(client, &client->player_input, &client->player_camera);
     }
 
@@ -181,8 +183,6 @@ bool client_run(Client *client)
 
     if (!level_update(&client->level, dt))
         return false;
-
-
 
     if (client->player) {
         if (is_state(&client->player->entity, SLIDING)) {
@@ -202,7 +202,7 @@ bool client_run(Client *client)
             //client->player->eye_offset.y = 0.0f;
         } else {
             const float target_eye_y = 1.0f;
-            const float snap_epsilon = 0.05f;
+            const float snap_epsilon = 0.001f;
 
             float delta = target_eye_y - client->player->eye_offset.y;
             if (fabsf(delta) <= snap_epsilon) {
@@ -228,7 +228,6 @@ bool client_run(Client *client)
             i++;
         }
     }
-
 
     client_render(client);
     
@@ -322,17 +321,17 @@ void client_input_test(Client* client, InputHandle *player_input, const Camera* 
     if (player_input->kb_state[SDL_SCANCODE_A]) dir.x += 1.0f;
     if (player_input->kb_state[SDL_SCANCODE_D]) dir.x -= 1.0f;
 
-    player_input->kb_state[SDL_SCANCODE_LSHIFT] ? set_state(&client->player->entity, RUNNING) : clear_state(&client->player->entity, RUNNING);
-    
+    //player_input->kb_state[SDL_SCANCODE_LSHIFT] ? set_state(&client->player->entity, RUNNING) : clear_state(&client->player->entity, RUNNING);
+    clear_state(&client->player->entity, RUNNING);
     client->player->movement.jump_queued = player_input->kb_state[SDL_SCANCODE_SPACE];
     client->player->movement.slide_queued = player_input->kb_state[SDL_SCANCODE_LCTRL];
 
-    /*
+    
     if (player_input->kb_state[SDL_SCANCODE_R]) {
         Vec3 boost_vec = camera_forward(player_camera);
         vec3_multiply_inplace(&boost_vec, 1000.0f);
         vec3_add_inplace(&client->player->entity.force, &boost_vec);
-    } */
+    } 
 
     static bool mb1_was_down = false;
     bool mb1_down = (mb.mb & SDL_BUTTON_LMASK) != 0;
@@ -490,7 +489,15 @@ void client_enet_poll(Client* client) {
                             } else {
                                 client->level.player_map[idx].value.entity.position = pos_pack->pos;
                                 client->level.player_map[idx].value.entity.velocity = pos_pack->vel;
-                                client->level.player_map[idx].value.movement.cam_dir = pos_pack->cam_dir;
+                                client->level.player_map[idx].value.movement.cam_forward = pos_pack->cam_dir;
+                                Vec3 up = {0.0f, 1.0f, 0.0f};
+                                Vec3 right = vec3_cross(&up, &pos_pack->cam_dir);
+                                if (vec3_mag_squared(&right) > 0.0f) {
+                                    vec3_normalize_inplace(&right);
+                                } else {
+                                    right = (Vec3){1.0f, 0.0f, 0.0f};
+                                }
+                                client->level.player_map[idx].value.movement.cam_right = right;
                                 client->level.player_map[idx].value.entity.states = pos_pack->state;
                                 client->level.player_map[idx].value.entity.health = pos_pack->health;
                                 client->level.player_map[idx].value.eye_offset = pos_pack->cam_offset;

@@ -56,7 +56,7 @@ bool server_run(Server* server) {
                 server->level.player_map[i].key,
                 server->level.player_map[i].value.entity.position,
                 server->level.player_map[i].value.entity.velocity,
-                server->level.player_map[i].value.movement.cam_dir,
+                server->level.player_map[i].value.movement.cam_forward,
                 server->level.player_map[i].value.entity.states,
                 server->level.player_map[i].value.entity.health,
                 server->level.player_map[i].value.eye_offset
@@ -172,7 +172,15 @@ void server_enet_poll(Server* s) {
                         if (idx != -1) {
                             s->level.player_map[idx].value.entity.position = pos->pos;
                             s->level.player_map[idx].value.entity.velocity= pos->vel;
-                            s->level.player_map[idx].value.movement.cam_dir = pos->cam_dir;
+                            s->level.player_map[idx].value.movement.cam_forward = pos->cam_dir;
+                            Vec3 up = {0.0f, 1.0f, 0.0f};
+                            Vec3 right = vec3_cross(&up, &pos->cam_dir);
+                            if (vec3_mag_squared(&right) > 0.0f) {
+                                vec3_normalize_inplace(&right);
+                            } else {
+                                right = (Vec3){1.0f, 0.0f, 0.0f};
+                            }
+                            s->level.player_map[idx].value.movement.cam_right = right;
                             s->level.player_map[idx].value.entity.states = pos->state;
                             s->level.player_map[idx].value.eye_offset = pos->cam_offset;
                         }

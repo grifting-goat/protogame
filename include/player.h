@@ -6,7 +6,8 @@
 
 typedef struct {
     Vec3 wish_dir;
-    Vec3 cam_dir;
+    Vec3 cam_forward;
+    Vec3 cam_right;
     float ground_acceleration_run;
     float ground_acceleration_walk;
     float ground_friction;
@@ -15,15 +16,13 @@ typedef struct {
 
     float run_speed;
     float walk_speed;
+    float air_speed;
 
     bool jump_queued;
     float jump_vel;
 
     bool slide_queued;
     float slide_friction;
-    float slide_redirection; //0->1
-
-    float glide_redirection; //0->1
 
 } Player_movement;
 

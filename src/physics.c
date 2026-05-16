@@ -8,14 +8,12 @@
 #define EPSILON 0.0001f
 #define SHOOT_MAX_RAY_LEN 100.0f
 #define SHOOT_RAY_STEP 0.1f
-#define SHOOT_TRACER_TIME 0.08f
+#define SHOOT_TRACER_TIME 0.3f
 
 void physics_p_air_movement(Player* p, float dt);
 void physics_p_ground_movement(Player* p, float dt);
 static void physics_apply_friction(Entity* ent, float friction, float dt);
 static void physics_accelerate(Entity* ent, const Vec3* wish_dir, float wish_speed, float accel, float dt);
-static void physics_redirect(Entity* ent, const Vec3* wish_dir, float redirect_rate, float dt);
-static void physics_gliding(Entity* ent, const Vec3* cam_dir, float redirect_rate, float dt);
 static void physics_air_accelerate(Entity* ent, Vec3 wishvel, float wishspeed, float accelerate,  float dt);
 bool check_dead(Entity* ent);
 
@@ -53,7 +51,6 @@ void physics_world_update(Level* level, float dt) {
 void physics_step(Level* level, float dt) {
     PhysicsWorld* world = &level->physics;
 
-
     for (int i = 0; i < hmlen(level->player_map); i++) {
         Player* p = &level->player_map[i].value;
         Entity* ent = &level->player_map[i].value.entity;
@@ -83,7 +80,7 @@ void physics_step(Level* level, float dt) {
 
             if (level->server_ref != NULL) {
                 Server* server = level->server_ref;
-                Vec3 dir = p->movement.cam_dir;
+                Vec3 dir = p->movement.cam_forward;
                 Vec3 source = p->entity.position;
                 vec3_add_inplace(&source, &p->eye_offset);
 
@@ -122,7 +119,7 @@ void physics_step(Level* level, float dt) {
 
                 Vec3 dir = vec3_subtract(&hit->entity.position, &ent->position);
                 vec3_normalize_inplace(&dir);
-                Vec3 knock = vec3_multiply(&dir, 6.0f);
+                Vec3 knock = vec3_multiply(&dir, 7.0f);
                 knock.y += 4.5f;
 
                 Packet_server_auth_knockback payload = {
@@ -155,7 +152,7 @@ void physics_step(Level* level, float dt) {
             }
 
             float horizonal_spd_mag = (ent->velocity.x * ent->velocity.x) + (ent->velocity.z * ent->velocity.z);
-            if (p->movement.slide_queued && (horizonal_spd_mag > (p->movement.walk_speed * p->movement.walk_speed))) {
+            if (p->movement.slide_queued && (horizonal_spd_mag > ((p->movement.walk_speed * p->movement.walk_speed)*0.8f))) {
                 set_state(ent, SLIDING);
             } else {
                 clear_state(ent, SLIDING);
@@ -231,43 +228,43 @@ void physics_p_air_movement(Player* p, float dt) {
 
     if (vec3_mag_squared(&wishdir) > EPSILON) {vec3_normalize_inplace(&wishdir);}
 
-    float wishspeed = m->run_speed;
+    float wishspeed = m->air_speed;
     if (wishspeed > m->air_speed_cap) {wishspeed = m->air_speed_cap;}
     Vec3 wishvel = vec3_multiply(&wishdir, wishspeed);
 
-    if (is_state(ent, GLIDING)) {
-        physics_gliding(ent, &m->cam_dir, m->glide_redirection, dt);
-    }
-    else {
-        if (vec3_mag_squared(&wishvel) <= EPSILON) {return;}
-        physics_air_accelerate(ent, wishvel, wishspeed, m->air_acceleration, dt);
-    }
-    
+    if (vec3_mag_squared(&wishvel) <= EPSILON) {return;}
+    physics_air_accelerate(ent, wishvel, wishspeed, m->air_acceleration, dt);
 }
 
 void physics_p_ground_movement(Player* p, float dt) {
     Entity* ent = &p->entity;
-    const Player_movement* m = &p->movement;
+    const Player_movement* m = &p->movement;      
 
     float fric = is_state(&p->entity, SLIDING) ? m->slide_friction : m->ground_friction;
     physics_apply_friction(ent, fric, dt);
 
-    if (is_state(ent, SLIDING)) {
-        physics_redirect(ent, &m->cam_dir, m->slide_redirection, dt);
+    Vec3 wishdir;
+    float spd = 0.0f;
+    if (is_state(ent, SLIDING)) { 
+        wishdir = (Vec3){m->wish_dir.x + p->movement.cam_forward.x, 0.0f, m->wish_dir.z + p->movement.cam_forward.z};
+        spd = m->air_speed;
     } else {
-        if (vec3_mag_squared(&m->wish_dir) <= EPSILON) {return;}
-        float spd = is_state(ent, RUNNING) ? m->run_speed : m->walk_speed;
-        float accel = is_state(ent, RUNNING) ? m->ground_acceleration_run : m->ground_acceleration_walk;
-
-        Vec3 wishdir = (Vec3){m->wish_dir.x, 0.0f, m->wish_dir.z};
-        if (vec3_mag_squared(&wishdir) <= EPSILON) {return;}
-        vec3_normalize_inplace(&wishdir);
-        Vec3 wishvel = vec3_multiply(&wishdir, spd);
-
-        physics_air_accelerate(ent, wishvel, spd, accel, dt);
-
+        wishdir = (Vec3){m->wish_dir.x, 0.0f, m->wish_dir.z};
+        spd = is_state(ent, RUNNING) ? m->run_speed : m->walk_speed;
     }
+
+    if (vec3_mag_squared(&wishdir) <= EPSILON) {return;}
+    float accel = is_state(ent, RUNNING) ? m->ground_acceleration_run : m->ground_acceleration_walk;
+
     
+    if (vec3_mag_squared(&wishdir) <= EPSILON) {return;}
+    vec3_normalize_inplace(&wishdir);
+    Vec3 wishvel = vec3_multiply(&wishdir, spd);
+
+
+    physics_air_accelerate(ent, wishvel, spd, accel, dt);
+
+
 
 }
 
@@ -314,9 +311,11 @@ static void physics_accelerate(Entity* ent, const Vec3* wish_dir, float wish_spe
 
 
 static void physics_air_accelerate(Entity* ent, Vec3 wishvel, float wishspeed, float accelerate,  float dt) {
-    float wishspd = vec3_mag(&wishvel);
+    float wishspd = wishspeed;
+
     vec3_normalize_inplace(&wishvel);
-    float currentspeed = vec3_dot(&ent->velocity, &wishvel);
+    float currentspeed = ent->velocity.x * wishvel.x + ent->velocity.z * wishvel.z;
+
     float addspeed = wishspd - currentspeed;
     if(addspeed <=0) {return;}
     float accelspeed = accelerate  * wishspeed * dt;
@@ -328,79 +327,6 @@ static void physics_air_accelerate(Entity* ent, Vec3 wishvel, float wishspeed, f
     
 }
 
-static void physics_redirect(Entity* ent, const Vec3* cam_dir, float redirect_rate, float dt) {
-
-    float speed = sqrtf(ent->velocity.x * ent->velocity.x + ent->velocity.z * ent->velocity.z);
-
-    if (speed <= EPSILON) {return;}
-
-    float dir_len_sq = (cam_dir->x * cam_dir->x) + (cam_dir->z * cam_dir->z);
-
-    if (dir_len_sq <= EPSILON) {
-        return;
-    }
-
-    Vec3 cam_flat = {cam_dir->x, 0.0f, cam_dir->z};
-    cam_flat = vec3_normalize(&cam_flat);
-
-    Vec3 current = {ent->velocity.x, 0.0f, ent->velocity.z};
-    Vec3 desired = {cam_flat.x * speed, 0.0f, cam_flat.z * speed};
-
-    float turn_t = redirect_rate * dt;
-    if (turn_t < 0.0f) turn_t = 0.0f;
-    if (turn_t > 1.0f) turn_t = 1.0f;
-
-    Vec3 blended = {
-        current.x + (desired.x - current.x) * turn_t,
-        0.0f,
-        current.z + (desired.z - current.z) * turn_t
-    };
-
-    float blended_speed = sqrtf(blended.x * blended.x + blended.z * blended.z);
-    if (blended_speed <= EPSILON) {
-        return;
-    }
-
-    float preserve_scale = speed / blended_speed;
-    ent->velocity.x = blended.x * preserve_scale;
-    ent->velocity.z = blended.z * preserve_scale;
-}
-
-
-
-static void physics_gliding(Entity* ent, const Vec3* cam_dir, float redirect_rate, float dt) {
-    float speed = vec3_mag(&ent->velocity);
-    if (speed <= EPSILON) {return;}
-
-    float dir_len_sq = vec3_mag_squared(cam_dir);
-    if (dir_len_sq <= EPSILON) {return;}
-
-    Vec3 current = ent->velocity;
-    Vec3 desired = vec3_multiply(cam_dir, speed);
-
-    float turn_t = redirect_rate * dt;
-    if (turn_t < 0.0f) turn_t = 0.0f;
-    if (turn_t > 1.0f) turn_t = 1.0f;
-
-    Vec3 blended = {
-        current.x + (desired.x - current.x) * turn_t,
-        current.y + (desired.y - current.y) * turn_t,
-        current.z + (desired.z - current.z) * turn_t
-    };
-
-    float redirected_speed = vec3_mag(&blended);
-    if (redirected_speed <= EPSILON) {return;}
-
-    float preserve_scale = speed / redirected_speed;
-
-    ent->velocity.x = blended.x * preserve_scale;
-    ent->velocity.y = blended.y * preserve_scale;
-    ent->velocity.z = blended.z * preserve_scale;
-
-    physics_accelerate(ent, cam_dir, 20.0f, 0.1f, dt);
-}
-
-
 
 
 Player* ray_check_player_collison(Level* level, Player* shooter, float max_ray_len, float step) {
@@ -408,7 +334,7 @@ Player* ray_check_player_collison(Level* level, Player* shooter, float max_ray_l
         return NULL;
     }
 
-    Vec3 dir = shooter->movement.cam_dir;
+    Vec3 dir = shooter->movement.cam_forward;
     if (vec3_mag_squared(&dir) <= EPSILON) {
         return NULL;
     }
