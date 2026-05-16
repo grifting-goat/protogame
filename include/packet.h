@@ -10,6 +10,7 @@
 
 #define PCKT_SHOOT 0x06
 #define PCKT_SERVER_AUTH_KNOCK 0x07
+#define PCKT_TRACER 0x08
 
 
 
@@ -29,6 +30,8 @@ typedef struct {
 
     uint32_t state;
     float health;
+
+    Vec3 cam_offset;
     
 } Packet_state;
 
@@ -54,6 +57,17 @@ typedef struct {
     uint32_t server_id;
 
 } Packet_shoot;
+
+
+typedef struct {
+    uint8_t pckt_id;
+    uint32_t server_id;
+
+    Vec3 source;
+    Vec3 dest;
+    float time;
+
+} Packet_tracer;
 
 typedef struct {
     uint8_t pckt_id;

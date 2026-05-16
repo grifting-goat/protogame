@@ -58,7 +58,8 @@ bool server_run(Server* server) {
                 server->level.player_map[i].value.entity.velocity,
                 server->level.player_map[i].value.movement.cam_dir,
                 server->level.player_map[i].value.entity.states,
-                server->level.player_map[i].value.entity.health
+                server->level.player_map[i].value.entity.health,
+                server->level.player_map[i].value.eye_offset
             };
             ENetPacket* packet = enet_packet_create(
                 &payload,
@@ -173,6 +174,7 @@ void server_enet_poll(Server* s) {
                             s->level.player_map[idx].value.entity.velocity= pos->vel;
                             s->level.player_map[idx].value.movement.cam_dir = pos->cam_dir;
                             s->level.player_map[idx].value.entity.states = pos->state;
+                            s->level.player_map[idx].value.eye_offset = pos->cam_offset;
                         }
                     }
 

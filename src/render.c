@@ -43,6 +43,71 @@ void render_model(Model* model, Vec3 pos, Shader* shader, Vec3 color) {
 
 }
 
+void render_line(const Vec3 start, const Vec3 end) {
+    GLint current_program = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &current_program);
+    if (current_program == 0) {
+        return;
+    }
+
+    GLint model_loc = glGetUniformLocation((GLuint)current_program, "model");
+    GLint color_loc = glGetUniformLocation((GLuint)current_program, "objectColor");
+    GLint use_tex_loc = glGetUniformLocation((GLuint)current_program, "useTexture");
+
+    GLfloat previous_model[16] = {0};
+    if (model_loc != -1) {
+        glGetUniformfv((GLuint)current_program, model_loc, previous_model);
+    }
+
+    if (use_tex_loc != -1) {
+        glUniform1i(use_tex_loc, 0);
+    }
+    if (color_loc != -1) {
+        glUniform3f(color_loc, 1.0f, 1.0f, 1.0f);
+    }
+
+    if (model_loc != -1) {
+        const GLfloat identity[16] = {
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f
+        };
+        glUniformMatrix4fv(model_loc, 1, GL_FALSE, identity);
+    }
+
+    const GLfloat line_vertices[6] = {
+        start.x, start.y, start.z,
+        end.x, end.y, end.z
+    };
+
+    GLuint vao = 0;
+    GLuint vbo = 0;
+
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
+
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(line_vertices), line_vertices, GL_STREAM_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glLineWidth(2.0f);
+    glDrawArrays(GL_LINES, 0, 2);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    glDeleteBuffers(1, &vbo);
+    glDeleteVertexArrays(1, &vao);
+
+    if (model_loc != -1) {
+        glUniformMatrix4fv(model_loc, 1, GL_FALSE, previous_model);
+    }
+}
+
 GLuint load_texture(const char* filename) {
     static TexCacheEntry cache[TEX_CACHE_SIZE];
     static int cache_count = 0;

@@ -16,6 +16,9 @@ bool client_enet_startup(Client* client);
 bool client_enet_connect(Client* client, const char* host);
 void client_enet_poll(Client* client);
 
+static const float CLIENT_TRACER_LIFESPAN = 0.3f;
+static const float CLIENT_TRACER_LENGTH = 500.0f;
+
 
 bool client_startup(Client *client, const char* host)
 {
@@ -69,6 +72,8 @@ bool client_startup(Client *client, const char* host)
     window_add_overlay(&client->win, "hp", "HP: 0", 20, 950);
 
     window_add_overlay_image(&client->win, "crosshair", "dot.png", (client->win.width/ 2) - 10, (client->win.height / 2) - 10);
+
+    client->tracer_count = 0;
 
     return true;
 }
@@ -155,7 +160,8 @@ bool client_run(Client *client)
             client->player->entity.velocity,
             camera_forward(&client->player_camera),
             client->player->entity.states,
-            client->player->entity.health
+            client->player->entity.health,
+            client->player->eye_offset
         };
         ENetPacket* packet = enet_packet_create(
             &payload,
@@ -213,6 +219,16 @@ bool client_run(Client *client)
         }
     }
 
+    for (uint32_t i = 0; i < client->tracer_count;) {
+        client->tracers[i].lifespan -= dt;
+        if (client->tracers[i].lifespan <= 0.0f) {
+            client->tracers[i] = client->tracers[client->tracer_count - 1];
+            client->tracer_count--;
+        } else {
+            i++;
+        }
+    }
+
 
     client_render(client);
     
@@ -259,6 +275,10 @@ void client_render(Client *client) {
             render_entity(&client->level.ent_map[i].value, basic_shader, temp_color[7]);
         }
         
+    }
+
+    for (uint32_t i = 0; i < client->tracer_count; i++) {
+        render_line(client->tracers[i].start, client->tracers[i].end);
     }
 
     window_render_overlay(&client->win);
@@ -317,6 +337,19 @@ void client_input_test(Client* client, InputHandle *player_input, const Camera* 
     static bool mb1_was_down = false;
     bool mb1_down = (mb.mb & SDL_BUTTON_LMASK) != 0;
     client->player->shoot_queued = (mb1_down && !mb1_was_down);
+    if (client->player->shoot_queued) {
+        Vec3 forward = camera_forward(player_camera);
+        Vec3 start = vec3_add(&client->player->entity.position, &client->player->eye_offset);
+        Vec3 ray = vec3_multiply(&forward, CLIENT_TRACER_LENGTH);
+        Vec3 end = vec3_add(&start, &ray);
+
+        Tracer tracer = {
+            start,
+            end,
+            CLIENT_TRACER_LIFESPAN
+        };
+        client_add_tracer(client, tracer);
+    }
     mb1_was_down = mb1_down;
 
     Vec3 forward = camera_forward(player_camera);
@@ -334,6 +367,19 @@ void client_input_test(Client* client, InputHandle *player_input, const Camera* 
 
     move_dir = vec3_normalize(&move_dir);
     client->player->movement.wish_dir = move_dir;
+}
+
+void client_add_tracer(Client* client, Tracer tracer) {
+    if (!client) return;
+
+    if (client->tracer_count < 32) {
+        client->tracers[client->tracer_count++] = tracer;
+    } else {
+        for (uint32_t i = 1; i < 32; i++) {
+            client->tracers[i - 1] = client->tracers[i];
+        }
+        client->tracers[31] = tracer;
+    }
 }
 
 
@@ -447,6 +493,7 @@ void client_enet_poll(Client* client) {
                                 client->level.player_map[idx].value.movement.cam_dir = pos_pack->cam_dir;
                                 client->level.player_map[idx].value.entity.states = pos_pack->state;
                                 client->level.player_map[idx].value.entity.health = pos_pack->health;
+                                client->level.player_map[idx].value.eye_offset = pos_pack->cam_offset;
 
                             }
                         }
@@ -464,6 +511,15 @@ void client_enet_poll(Client* client) {
                         int idx = hmgeti(client->level.player_map, player_knock->server_id);
                         if (idx != -1) {
                             vec3_add_inplace(&client->level.player_map[idx].value.entity.velocity, &player_knock->vel_knock);
+                        }
+                    }
+
+                    if (packet_type == PCKT_TRACER && event.packet->dataLength >= sizeof(Packet_tracer)) {
+                        const Packet_tracer* player_knock = (const Packet_tracer*)event.packet->data;
+                        int idx = hmgeti(client->level.player_map, player_knock->server_id);
+                        if (idx != -1) {
+                            Tracer t = (Tracer){player_knock->source, player_knock->dest, player_knock->time};
+                            client_add_tracer(client, t);
                         }
                     }
 

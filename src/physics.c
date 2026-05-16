@@ -8,6 +8,7 @@
 #define EPSILON 0.0001f
 #define SHOOT_MAX_RAY_LEN 100.0f
 #define SHOOT_RAY_STEP 0.1f
+#define SHOOT_TRACER_TIME 0.08f
 
 void physics_p_air_movement(Player* p, float dt);
 void physics_p_ground_movement(Player* p, float dt);
@@ -80,6 +81,37 @@ void physics_step(Level* level, float dt) {
 
             }
 
+            if (level->server_ref != NULL) {
+                Server* server = level->server_ref;
+                Vec3 dir = p->movement.cam_dir;
+                Vec3 source = p->entity.position;
+                vec3_add_inplace(&source, &p->eye_offset);
+
+                if (vec3_mag_squared(&dir) > EPSILON) {
+                    vec3_normalize_inplace(&dir);
+                } else {
+                    dir = (Vec3){0.0f, 0.0f, -1.0f};
+                }
+
+                Vec3 ray = vec3_multiply(&dir, SHOOT_MAX_RAY_LEN);
+                Vec3 dest = vec3_add(&source, &ray);
+
+                Packet_tracer tracer_payload = {
+                    PCKT_TRACER,
+                    p->server_id,
+                    source,
+                    dest,
+                    SHOOT_TRACER_TIME
+                };
+
+                ENetPacket* tracer_packet = enet_packet_create(
+                    &tracer_payload,
+                    sizeof(tracer_payload),
+                    0
+                );
+                enet_host_broadcast(server->e_server, 1, tracer_packet);
+            }
+
             Player* hit = ray_check_player_collison(level, p, SHOOT_MAX_RAY_LEN, SHOOT_RAY_STEP);
 
             if (hit && (level->server_ref != NULL)) {
@@ -90,8 +122,8 @@ void physics_step(Level* level, float dt) {
 
                 Vec3 dir = vec3_subtract(&hit->entity.position, &ent->position);
                 vec3_normalize_inplace(&dir);
-                Vec3 knock = vec3_multiply(&dir, 5.0f);
-                knock.y += 3.0f;
+                Vec3 knock = vec3_multiply(&dir, 6.0f);
+                knock.y += 4.5f;
 
                 Packet_server_auth_knockback payload = {
                     PCKT_SERVER_AUTH_KNOCK,

@@ -15,6 +15,8 @@ void render_entity(Entity* ent, Shader* shader, Vec3 color);
 
 void render_model(Model* model, Vec3 pos, Shader* shader, Vec3 color);
 
+void render_line(const Vec3 start, const Vec3 end);
+
 GLuint load_texture(const char* filename);
 
 

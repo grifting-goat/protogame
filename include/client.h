@@ -9,6 +9,14 @@
 #include "render.h"
 #include "camera.h"
 
+typedef struct {
+    Vec3 start;
+    Vec3 end;
+
+    float lifespan;
+
+} Tracer;
+
 
 typedef struct Client {
     Window win;
@@ -28,11 +36,17 @@ typedef struct Client {
     bool enet_connect_attempted;
     bool enet_connected;
 
+    Tracer tracers[32];
+    uint32_t tracer_count;
+
 } Client;
 
 bool client_startup(Client* client, const char* host);
 
+
 bool client_run(Client* client);
+
+void client_add_tracer(Client* client, Tracer tracer);
 
 void client_close(Client* client);
 
