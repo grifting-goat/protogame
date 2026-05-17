@@ -48,8 +48,10 @@ bool client_startup(Client *client, const char* host)
 
     Model ground = temp_create_plane();
     Model skybox = temp_create_skybox();
+    Model tea = temp_create_model("test.obj", NULL);
     level_add_model(&client->level, &ground);
     level_add_model(&client->level, &skybox);
+    //level_add_model(&client->level, &tea);
     
 
     client->player = NULL;
@@ -241,6 +243,11 @@ void client_render(Client *client) {
     Shader* basic_shader = &client->player_camera.shader;
 
     shader_use(basic_shader);    
+
+    Vec3 light_dir = { 0.86f, -0.8f, 0.52f };
+    shader_set_vec3(basic_shader, "lightDir", &light_dir);
+
+
     Mat4 view = camera_view_matrix(&client->player_camera);
     Mat4 projection = camera_projection_matrix(&client->player_camera);
     shader_set_mat4(basic_shader, "view", &view);
@@ -265,11 +272,12 @@ void client_render(Client *client) {
 
     for (int i = 0; i < hmlen(client->level.player_map); i++) {
         if (client->level.player_map[i].key != client->server_id) {
-            render_entity(&client->level.player_map[i].value.entity, basic_shader, temp_color[((client->level.player_map[i].key) + 3) % 8]);
+            render_entity(&client->level.player_map[i].value.entity, basic_shader, temp_color[((client->level.player_map[i].value.unqid)) % 8]);
         }
     }
 
     for (int i = 0; i < hmlen(client->level.ent_map); i++) {
+
         if (client->level.ent_map[i].key != client->server_id) {
             render_entity(&client->level.ent_map[i].value, basic_shader, temp_color[7]);
         }
@@ -490,14 +498,8 @@ void client_enet_poll(Client* client) {
                                 client->level.player_map[idx].value.entity.position = pos_pack->pos;
                                 client->level.player_map[idx].value.entity.velocity = pos_pack->vel;
                                 client->level.player_map[idx].value.movement.cam_forward = pos_pack->cam_dir;
-                                Vec3 up = {0.0f, 1.0f, 0.0f};
-                                Vec3 right = vec3_cross(&up, &pos_pack->cam_dir);
-                                if (vec3_mag_squared(&right) > 0.0f) {
-                                    vec3_normalize_inplace(&right);
-                                } else {
-                                    right = (Vec3){1.0f, 0.0f, 0.0f};
-                                }
-                                client->level.player_map[idx].value.movement.cam_right = right;
+                                float yaw = atan2f(-pos_pack->cam_dir.z, pos_pack->cam_dir.x);
+                                client->level.player_map[idx].value.entity.model.rotation = (Vec3){0.0f, yaw, 0.0f};
                                 client->level.player_map[idx].value.entity.states = pos_pack->state;
                                 client->level.player_map[idx].value.entity.health = pos_pack->health;
                                 client->level.player_map[idx].value.eye_offset = pos_pack->cam_offset;

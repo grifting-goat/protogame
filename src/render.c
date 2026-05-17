@@ -6,6 +6,7 @@
 
 void render_entity(Entity* ent, Shader* shader, Vec3 color) {
     Model* model = &ent->model;
+    shader_set_int(shader, "useLighting", model->use_lighting ? 1 : 0);
     if (model->mesh.texture != 0) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, model->mesh.texture);
@@ -17,7 +18,11 @@ void render_entity(Entity* ent, Shader* shader, Vec3 color) {
     
     Mat4 offset = mat4_translate(vec3_add(&model->offset, &ent->position));
     Mat4 scale = mat4_scale(model->scale);
-    Mat4 new_model = mat4_multiply(scale, offset);
+    Mat4 rot_x = mat4_rotate_x(model->rotation.x);
+    Mat4 rot_y = mat4_rotate_y(model->rotation.y);
+    Mat4 rot_z = mat4_rotate_z(model->rotation.z);
+    Mat4 rotation = mat4_multiply(mat4_multiply(rot_z, rot_y), rot_x);
+    Mat4 new_model = mat4_multiply(mat4_multiply(scale, rotation), offset);
     shader_set_mat4(shader, "model", &new_model);
     shader_set_vec3(shader, "objectColor", &color);
     model_draw(model);
@@ -25,6 +30,7 @@ void render_entity(Entity* ent, Shader* shader, Vec3 color) {
 }
 
 void render_model(Model* model, Vec3 pos, Shader* shader, Vec3 color) {
+    shader_set_int(shader, "useLighting", model->use_lighting ? 1 : 0);
     if (model->mesh.texture != 0) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, model->mesh.texture);
@@ -36,7 +42,11 @@ void render_model(Model* model, Vec3 pos, Shader* shader, Vec3 color) {
     
     Mat4 offset = mat4_translate(vec3_add(&model->offset, &pos));
     Mat4 scale = mat4_scale(model->scale);
-    Mat4 new_model = mat4_multiply(scale, offset);
+    Mat4 rot_x = mat4_rotate_x(model->rotation.x);
+    Mat4 rot_y = mat4_rotate_y(model->rotation.y);
+    Mat4 rot_z = mat4_rotate_z(model->rotation.z);
+    Mat4 rotation = mat4_multiply(mat4_multiply(rot_z, rot_y), rot_x);
+    Mat4 new_model = mat4_multiply(mat4_multiply(scale, rotation), offset);
     shader_set_mat4(shader, "model", &new_model);
     shader_set_vec3(shader, "objectColor", &color);
     model_draw(model);
@@ -53,6 +63,7 @@ void render_line(const Vec3 start, const Vec3 end) {
     GLint model_loc = glGetUniformLocation((GLuint)current_program, "model");
     GLint color_loc = glGetUniformLocation((GLuint)current_program, "objectColor");
     GLint use_tex_loc = glGetUniformLocation((GLuint)current_program, "useTexture");
+    GLint use_lighting_loc = glGetUniformLocation((GLuint)current_program, "useLighting");
 
     GLfloat previous_model[16] = {0};
     if (model_loc != -1) {
@@ -61,6 +72,9 @@ void render_line(const Vec3 start, const Vec3 end) {
 
     if (use_tex_loc != -1) {
         glUniform1i(use_tex_loc, 0);
+    }
+    if (use_lighting_loc != -1) {
+        glUniform1i(use_lighting_loc, 0);
     }
     if (color_loc != -1) {
         glUniform3f(color_loc, 1.0f, 1.0f, 1.0f);

@@ -49,7 +49,8 @@ bool level_add_player(Level* level, uint64_t uqid, uint32_t server_id) {
     new_player.server_id = server_id;
 
     if (!level->server) {
-        new_player.entity.model = temp_create_sphere(32, 16, 1.0f);
+        //new_player.entity.model = temp_create_sphere(32, 16, 1.0f);
+        new_player.entity.model = temp_create_model("test.obj", NULL);
     }
 
     hmput(level->player_map, server_id, new_player);
