@@ -1,6 +1,7 @@
 #include "level.h"
 #include <stdlib.h>
 #include "stb_ds.h"
+#include "client.h"
 
 #include "states.h"
 
@@ -48,9 +49,17 @@ bool level_add_player(Level* level, uint64_t uqid, uint32_t server_id) {
     new_player.unqid = uqid;
     new_player.server_id = server_id;
 
-    if (!level->server) {
+    if (!level->server && level->client_ref != NULL) {
         //new_player.entity.model = temp_create_sphere(32, 16, 1.0f);
-        new_player.entity.model = temp_create_model("test.obj", NULL);
+        new_player.entity.model = temp_create_model("crower.obj", "sand.jpg", level->client_ref->model_cache);
+
+        //new_player.entity.model.scale = (Vec3){0.3f, 0.5f, 0.5f};
+        new_player.entity.model.offset = (Vec3){0.0f, -1.0f, 0.0f};
+
+        /*
+        new_player.entity.model.scale = (Vec3){0.6f, 0.7f, 0.5f};
+        new_player.entity.model.offset = (Vec3){0.0f, -1.1f, 0.0f};
+        */
     }
 
     hmput(level->player_map, server_id, new_player);

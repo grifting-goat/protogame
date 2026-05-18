@@ -53,6 +53,81 @@ void render_model(Model* model, Vec3 pos, Shader* shader, Vec3 color) {
 
 }
 
+
+void render_model_static(Model* model, const Camera* camera, Vec3 view_offset, Shader* shader, Vec3 color) {
+    if (!model || !shader || !camera || !camera->position) {
+        return;
+    }
+
+    shader_set_int(shader, "useLighting", model->use_lighting ? 1 : 0);
+    if (model->mesh.texture != 0) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, model->mesh.texture);
+        shader_set_int(shader, "texSampler", 0); // set sampler2D uniform to 0
+        shader_set_int(shader, "useTexture", 1);
+    } else {
+        shader_set_int(shader, "useTexture", 0);
+    }
+
+    GLboolean depth_was_enabled = glIsEnabled(GL_DEPTH_TEST);
+    GLboolean depth_mask_was_enabled = GL_TRUE;
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depth_mask_was_enabled);
+
+    GLint prev_program = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev_program);
+    GLint view_loc = -1;
+    GLint proj_loc = -1;
+    GLfloat prev_view[16] = {0};
+    GLfloat prev_proj[16] = {0};
+    if (prev_program != 0) {
+        view_loc = glGetUniformLocation((GLuint)prev_program, "view");
+        if (view_loc != -1) {
+            glGetUniformfv((GLuint)prev_program, view_loc, prev_view);
+        }
+
+        proj_loc = glGetUniformLocation((GLuint)prev_program, "projection");
+        if (proj_loc != -1) {
+            glGetUniformfv((GLuint)prev_program, proj_loc, prev_proj);
+        }
+    }
+
+    // Viewmodel pass: clear world depth so only the viewmodel depth-tests against itself.
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    Mat4 identity = mat4_identity();
+    shader_set_mat4(shader, "view", &identity);
+
+    const float viewmodel_fov = 1.0471976f; 
+    float aspect = (camera->aspect > 0.0f) ? camera->aspect : (16.0f / 9.0f);
+    Mat4 viewmodel_projection = mat4_perspective(viewmodel_fov, aspect, camera->near_plane, camera->far_plane);
+    shader_set_mat4(shader, "projection", &viewmodel_projection);
+
+    Mat4 offset = mat4_translate(vec3_add(&model->offset, &view_offset));
+    Mat4 scale = mat4_scale(model->scale);
+    Mat4 rot_x = mat4_rotate_x(model->rotation.x);
+    Mat4 rot_y = mat4_rotate_y(model->rotation.y);
+    Mat4 rot_z = mat4_rotate_z(model->rotation.z);
+    Mat4 rotation = mat4_multiply(mat4_multiply(rot_z, rot_y), rot_x);
+    Mat4 new_model = mat4_multiply(mat4_multiply(scale, rotation), offset);
+    shader_set_mat4(shader, "model", &new_model);
+    shader_set_vec3(shader, "objectColor", &color);
+    model_draw(model);
+
+    if (view_loc != -1) {
+        glUniformMatrix4fv(view_loc, 1, GL_FALSE, prev_view);
+    }
+    if (proj_loc != -1) {
+        glUniformMatrix4fv(proj_loc, 1, GL_FALSE, prev_proj);
+    }
+
+    glDepthMask(depth_mask_was_enabled);
+    if (!depth_was_enabled) {
+        glDisable(GL_DEPTH_TEST);
+    }
+}
+
 void render_line(const Vec3 start, const Vec3 end) {
     GLint current_program = 0;
     glGetIntegerv(GL_CURRENT_PROGRAM, &current_program);

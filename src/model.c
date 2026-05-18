@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "stb_ds.h"
+#include "client.h"
 
 #define MODEL_LOADER_INIT_CAP 1024
 
@@ -104,13 +106,22 @@ void model_destroy(Model* model) {
 }
 
 //painful
-Model model_load(const char* obj_path, const char* tex_path) {
-    FILE *fp = fopen(obj_path, "r");
-    if (!fp) {
-        return model_create_empty();
-    }
+Model model_load(const char* obj_path, const char* tex_path, ModelHashMap* cache) {
 
     Model mdl = model_create_empty();
+
+    int32_t idx = hmgeti(cache, obj_path);
+    if (idx != -1) {
+        mdl = cache[idx].value;
+        return mdl;
+    }
+
+    FILE *fp = fopen(obj_path, "r");
+    if (!fp) {
+        return mdl;
+    }
+
+    
 
     uint32_t pos_cap = MODEL_LOADER_INIT_CAP;
     uint32_t vt_cap = MODEL_LOADER_INIT_CAP;

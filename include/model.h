@@ -1,7 +1,7 @@
 #ifndef MODEL_H
 #define MODEL_H
 
-#include<glad/glad.h>
+#include <glad/glad.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -38,9 +38,14 @@ typedef struct {
     //Uint32 mesh_count;
 } Model;
 
+typedef struct {
+    const char* key;
+    Model value;
+} ModelHashMap;
+
 bool model_create(Model* model, const Vertex* vertices, uint32_t vertex_count, const uint32_t* indices, uint32_t index_count, const char* texture_path);
 Model model_create_empty(void);
-Model model_load(const char* obj_path, const char* tex_path);
+Model model_load(const char* obj_path, const char* tex_path, ModelHashMap* cache);
 void model_draw(const Model* model);
 void model_destroy(Model* model);
 

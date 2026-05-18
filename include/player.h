@@ -24,6 +24,8 @@ typedef struct {
     bool slide_queued;
     float slide_friction;
 
+
+
 } Player_movement;
 
 
@@ -40,6 +42,8 @@ typedef struct {
     Player_movement movement;
 
     bool shoot_queued; //temp
+
+    uint32_t gun_idx;
 
 } Player;
 

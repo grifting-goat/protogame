@@ -1,5 +1,4 @@
 #include "client.h"
-#include <glad/glad.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
@@ -46,12 +45,47 @@ bool client_startup(Client *client, const char* host)
 
     input_init(&client->player_input, &client->win);
 
+    sh_new_strdup(client->model_cache);
+
     Model ground = temp_create_plane();
     Model skybox = temp_create_skybox();
-    Model tea = temp_create_model("test.obj", NULL);
+    Model tea = temp_create_model("teapot.obj", "sand.jpg", client->model_cache);
+    //Model bird = temp_create_model("figure.obj", NULL, client->model_cache);
+    Model gun = temp_create_model("blunder.obj", "blunder.png", client->model_cache);
+    Model othergun = temp_create_model("othergun.obj", "othergun.bmp", client->model_cache);
+
+    //level_add_model(&client->level, &gun);
+
+
+    client->guns[0] = gun;
+    client->guns[1] = othergun;
+    client->guns[2] = tea;
+
+    client->guns[0].offset = (Vec3){0.3f, -0.3f, -0.7f};
+    client->guns[0].scale = (Vec3){0.7f, 0.7f, 0.7f};
+    client->guns[0].rotation = (Vec3){0.3f, 0.3f, -0.5f};
+
+    client->guns[1].offset = (Vec3){0.3f, -0.3f, -0.7f};
+    client->guns[1].scale = (Vec3){0.12f, 0.12f, 0.12f};
+    client->guns[1].rotation = (Vec3){0.3f, 0.1f, -0.3f};
+
+    client->guns[2].offset = (Vec3){0.3f, -0.3f, -0.7f};
+    client->guns[2].scale = (Vec3){0.2f, 0.2f, 0.2f};
+    client->guns[2].rotation = (Vec3){0.3f, 2.9f, -0.4f};
+
+    
+    tea.offset = (Vec3){5.0f, 0.0f, 0.0f};
+    tea.scale = (Vec3){2.0f, 2.0f, 2.0f};
+
+
+
+
     level_add_model(&client->level, &ground);
     level_add_model(&client->level, &skybox);
-    //level_add_model(&client->level, &tea);
+    level_add_model(&client->level, &tea);
+
+    
+
     
 
     client->player = NULL;
@@ -238,6 +272,9 @@ bool client_run(Client *client)
 
 
 void client_render(Client *client) {
+
+    if (!client->player) {return;}
+
     glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     Shader* basic_shader = &client->player_camera.shader;
@@ -288,6 +325,10 @@ void client_render(Client *client) {
         render_line(client->tracers[i].start, client->tracers[i].end);
     }
 
+    Vec3 gun_view_offset = (Vec3){0.0f, 0.0f, 0.0f};
+    render_model_static(&client->guns[client->player->gun_idx], &client->player_camera, gun_view_offset, basic_shader, temp_color[6]);
+
+
     window_render_overlay(&client->win);
     window_swap_buffers(&client->win);
 }
@@ -333,6 +374,18 @@ void client_input_test(Client* client, InputHandle *player_input, const Camera* 
     clear_state(&client->player->entity, RUNNING);
     client->player->movement.jump_queued = player_input->kb_state[SDL_SCANCODE_SPACE];
     client->player->movement.slide_queued = player_input->kb_state[SDL_SCANCODE_LCTRL];
+
+    if (player_input->kb_state[SDL_SCANCODE_1]) {
+        client->player->gun_idx = 0;
+    }
+
+        if (player_input->kb_state[SDL_SCANCODE_2]) {
+        client->player->gun_idx = 1;
+    }
+
+    if (player_input->kb_state[SDL_SCANCODE_3]) {
+        client->player->gun_idx = 2;
+    }
 
     
     if (player_input->kb_state[SDL_SCANCODE_R]) {
@@ -577,6 +630,9 @@ void client_close(Client *client)
         client->e_client = NULL;
     }
     enet_deinitialize();
+
+    shfree(client->model_cache);
+    client->model_cache = NULL;
 
     window_destroy(&client->win);
     window_quit();

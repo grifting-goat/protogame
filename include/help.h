@@ -84,13 +84,11 @@ static inline Model temp_create_sphere(int sectorCount, int stackCount, float ra
     return sphere;
 }
 
-static inline Model temp_create_model(const char* path, const char* tex) {
+static inline Model temp_create_model(const char* path, const char* tex, ModelHashMap* cache) {
     Model mdl;
 
     if (path != NULL) {
-        Model mdl = model_load(path, tex);
-        mdl.scale = (Vec3){0.6f, 0.7f, 0.5f};
-        mdl.offset = (Vec3){0.0f, -1.1f, 0.0f};
+        Model mdl = model_load(path, tex, cache);
         return mdl;
     }
 

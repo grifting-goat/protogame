@@ -24,6 +24,7 @@ Player player_create() {
     p.movement.jump_vel = 5.0f;
     p.movement.slide_queued = false;
     p.movement.slide_friction = 0.5f;
+    p.gun_idx = 0;
 
     clear_state(&p.entity, DEAD);
     

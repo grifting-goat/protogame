@@ -39,6 +39,11 @@ typedef struct Client {
     Tracer tracers[32];
     uint32_t tracer_count;
 
+
+    ModelHashMap* model_cache;
+
+    Model guns[3];
+
 } Client;
 
 bool client_startup(Client* client, const char* host);
