@@ -99,7 +99,8 @@ Mat4 mat4_scale(Vec3 scale) {
 // tried to understand, eventually just copy paste
 Mat4 mat4_perspective(float fov, float aspect, float near, float far) {
     Mat4 result = {0};
-    float tan_half_fov = tanf(fov * 0.5f);
+    float fov_rad = fov * (3.14159265358979323846f / 180.0f);
+    float tan_half_fov = tanf(fov_rad * 0.5f);
     
     result.m[0] = 1.0f / (aspect * tan_half_fov);
     result.m[5] = 1.0f / tan_half_fov;
@@ -136,4 +137,28 @@ Mat4 mat4_look_at(Vec3 eye, Vec3 center, Vec3 up) {
     result.m[14] = vec3_dot(&f, &eye);
     
     return result;
+}
+
+
+Vec3 vec3_lerp(const Vec3* from, const Vec3* to, float t) {
+    if (!from && !to) return (Vec3){0.0f, 0.0f, 0.0f};
+    if (!from) return *to;
+    if (!to) return *from;
+
+    float alpha = fmaxf(0.0f, fminf(1.0f, t));
+
+    return (Vec3){
+        from->x + (to->x - from->x) * alpha,
+        from->y + (to->y - from->y) * alpha,
+        from->z + (to->z - from->z) * alpha
+    };
+}
+
+Vec3 vec3_lerp_inplace(Vec3* from, const Vec3* to, float t) {
+    if (!from && !to) return (Vec3){0.0f, 0.0f, 0.0f};
+    if (!from) return *to;
+    if (!to) return *from;
+
+    *from = vec3_lerp(from, to, t);
+    return *from;
 }

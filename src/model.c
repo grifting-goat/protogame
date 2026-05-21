@@ -5,6 +5,7 @@
 #include <string.h>
 #include "stb_ds.h"
 #include "client.h"
+#include "ground.h"
 
 #define MODEL_LOADER_INIT_CAP 1024
 
@@ -244,71 +245,102 @@ Model model_load(const char* obj_path, const char* tex_path, ModelHashMap* cache
         }
 
         if (line[0] == 'f' && line[1] == ' ') { //get face indexes
-            int vi[3] = {0}, ti[3] = {0}, ni[3] = {0};
-            int parsed = sscanf(
-                line + 2,
-                "%d/%d/%d %d/%d/%d %d/%d/%d",
-                &vi[0], &ti[0], &ni[0],
-                &vi[1], &ti[1], &ni[1],
-                &vi[2], &ti[2], &ni[2]
-            );
+            enum { FACE_MAX_VERTS = 64 };
+            int face_vi[FACE_MAX_VERTS] = {0};
+            int face_ti[FACE_MAX_VERTS] = {0};
+            int face_ni[FACE_MAX_VERTS] = {0};
+            int face_count = 0;
 
-            if (parsed != 9) {
-                parsed = sscanf(
-                    line + 2,
-                    "%d//%d %d//%d %d//%d",
-                    &vi[0], &ni[0],
-                    &vi[1], &ni[1],
-                    &vi[2], &ni[2]
-                );
-                if (parsed == 6) {
-                    ti[0] = ti[1] = ti[2] = 0;
-                } else {
-                    continue;
+            char* face_data = line + 2;
+            char* token = strtok(face_data, " \t");
+            while (token && face_count < FACE_MAX_VERTS) {
+                int v = 0, t = 0, n = 0;
+
+                int parsed = sscanf(token, "%d/%d/%d", &v, &t, &n);
+                if (parsed != 3) {
+                    parsed = sscanf(token, "%d//%d", &v, &n);
+                    if (parsed == 2) {
+                        t = 0;
+                    } else {
+                        parsed = sscanf(token, "%d/%d", &v, &t);
+                        if (parsed == 2) {
+                            n = 0;
+                        } else {
+                            parsed = sscanf(token, "%d", &v);
+                            if (parsed == 1) {
+                                t = 0;
+                                n = 0;
+                            } else {
+                                token = strtok(NULL, " \t");
+                                continue;
+                            }
+                        }
+                    }
                 }
+
+                face_vi[face_count] = v;
+                face_ti[face_count] = t;
+                face_ni[face_count] = n;
+                face_count++;
+
+                token = strtok(NULL, " \t");
             }
 
-            for (int k = 0; k < 3; k++) {
-                if (out_vert_count >= out_cap) {
-                    uint32_t new_cap = out_cap * 2;
-                    Vertex* new_vert = realloc(vert, (size_t)new_cap * sizeof(*vert));
-                    if (!new_vert) {
-                        load_failed = true;
+            if (face_count < 3) {
+                continue;
+            }
+
+            // Triangulate polygon faces as a fan: (0, i, i+1)
+            for (int tri = 1; tri < face_count - 1; tri++) {
+                int tri_idx[3] = {0, tri, tri + 1};
+
+                for (int k = 0; k < 3; k++) {
+                    if (out_vert_count >= out_cap) {
+                        uint32_t new_cap = out_cap * 2;
+                        Vertex* new_vert = realloc(vert, (size_t)new_cap * sizeof(*vert));
+                        if (!new_vert) {
+                            load_failed = true;
+                            break;
+                        }
+                        vert = new_vert;
+                        memset(&vert[out_cap], 0, (size_t)(new_cap - out_cap) * sizeof(*vert));
+                        out_cap = new_cap;
+                    }
+
+                    if (load_failed) {
                         break;
                     }
-                    vert = new_vert;
-                    memset(&vert[out_cap], 0, (size_t)(new_cap - out_cap) * sizeof(*vert));
-                    out_cap = new_cap;
+
+                    int src = tri_idx[k];
+                    int p_idx = face_vi[src] - 1;
+                    int t_idx = face_ti[src] - 1;
+                    int n_idx = face_ni[src] - 1;
+
+                    if (p_idx < 0 || (uint32_t)p_idx >= pos_count) {
+                        continue;
+                    }
+
+                    vert[out_vert_count].position[0] = positions[p_idx][0];
+                    vert[out_vert_count].position[1] = positions[p_idx][1];
+                    vert[out_vert_count].position[2] = positions[p_idx][2];
+
+                    if (t_idx >= 0 && (uint32_t)t_idx < vt_count) {
+                        vert[out_vert_count].texcoord[0] = texcoords[t_idx][0];
+                        vert[out_vert_count].texcoord[1] = texcoords[t_idx][1];
+                    }
+
+                    if (n_idx >= 0 && (uint32_t)n_idx < vn_count) {
+                        vert[out_vert_count].normal[0] = normals[n_idx][0];
+                        vert[out_vert_count].normal[1] = normals[n_idx][1];
+                        vert[out_vert_count].normal[2] = normals[n_idx][2];
+                    }
+
+                    out_vert_count++;
                 }
 
                 if (load_failed) {
                     break;
                 }
-
-                int p_idx = vi[k] - 1;
-                int t_idx = ti[k] - 1;
-                int n_idx = ni[k] - 1;
-
-                if (p_idx < 0 || (uint32_t)p_idx >= pos_count) {
-                    continue;
-                }
-
-                vert[out_vert_count].position[0] = positions[p_idx][0];
-                vert[out_vert_count].position[1] = positions[p_idx][1];
-                vert[out_vert_count].position[2] = positions[p_idx][2];
-
-                if (t_idx >= 0 && (uint32_t)t_idx < vt_count) {
-                    vert[out_vert_count].texcoord[0] = texcoords[t_idx][0];
-                    vert[out_vert_count].texcoord[1] = texcoords[t_idx][1];
-                }
-
-                if (n_idx >= 0 && (uint32_t)n_idx < vn_count) {
-                    vert[out_vert_count].normal[0] = normals[n_idx][0];
-                    vert[out_vert_count].normal[1] = normals[n_idx][1];
-                    vert[out_vert_count].normal[2] = normals[n_idx][2];
-                }
-
-                out_vert_count++;
             }
 
             if (load_failed) {
@@ -357,4 +389,122 @@ Model model_load(const char* obj_path, const char* tex_path, ModelHashMap* cache
     free(vert);
 
     return mdl;
+}
+
+
+Model model_generate_map(Ground* ground) {
+    Model mdl = model_create_empty();
+    const float uv_repeat_every = 0.5f;
+
+    float y_scalar = ground->y_scale;
+    float xz_scalar = ground->xz_scale;
+
+    if (!ground || !ground->height_map) {
+        return mdl;
+    }
+
+    uint32_t** map = ground->height_map;
+    uint32_t r_size = ground->x_size;
+    uint32_t c_size = ground->z_size;
+
+    uint32_t vert_count = r_size * c_size;
+    Vertex* vert = (vert_count > 0) ? calloc(vert_count, sizeof(Vertex)) : NULL;
+
+    uint32_t index_count = (r_size > 1 && c_size > 1) ? ((r_size - 1) * (c_size - 1) * 6) : 0;
+    uint32_t* indices = (index_count > 0) ? calloc(index_count, sizeof(uint32_t)) : NULL;
+
+    if (!vert || (index_count > 0 && !indices)) {
+        free(vert);
+        free(indices);
+        return mdl;
+
+    }
+
+
+    for (int r = 0; r < r_size; r++) {
+        for (int c = 0; c < c_size; c++) {
+            int idx = c + (r * c_size);
+
+            vert[idx].position[0] = (float)r * xz_scalar;
+            vert[idx].position[1] = (float)map[r][c] * y_scalar;
+            vert[idx].position[2] = (float)c * xz_scalar;
+
+            vert[idx].texcoord[0] = (float)c / uv_repeat_every;
+            vert[idx].texcoord[1] = (float)r / uv_repeat_every;
+        }
+    }
+
+    for (int r = 0; r < r_size; r++) {
+        for (int c = 0; c < c_size; c++) {
+            int idx = c + (r * c_size);
+
+            int r_l = (r > 0) ? (r - 1) : r;
+            int r_r = (r + 1 < (int)r_size) ? (r + 1) : r;
+            int c_d = (c > 0) ? (c - 1) : c;
+            int c_u = (c + 1 < (int)c_size) ? (c + 1) : c;
+
+            int idx_l = c + (r_l * c_size);
+            int idx_r = c + (r_r * c_size);
+            int idx_d = c_d + (r * c_size);
+            int idx_u = c_u + (r * c_size);
+
+            Vec3 p_l = {
+                vert[idx_l].position[0],
+                vert[idx_l].position[1],
+                vert[idx_l].position[2]
+            };
+            Vec3 p_r = {
+                vert[idx_r].position[0],
+                vert[idx_r].position[1],
+                vert[idx_r].position[2]
+            };
+            Vec3 p_d = {
+                vert[idx_d].position[0],
+                vert[idx_d].position[1],
+                vert[idx_d].position[2]
+            };
+            Vec3 p_u = {
+                vert[idx_u].position[0],
+                vert[idx_u].position[1],
+                vert[idx_u].position[2]
+            };
+
+            Vec3 tx = vec3_subtract(&p_r, &p_l);
+            Vec3 tz = vec3_subtract(&p_u, &p_d);
+            Vec3 n = vec3_cross(&tz, &tx);
+            n = vec3_normalize(&n);
+
+            vert[idx].normal[0] = n.x;
+            vert[idx].normal[1] = n.y;
+            vert[idx].normal[2] = n.z;
+        }
+    }
+
+    uint32_t write_idx = 0;
+    for (uint32_t r = 0; r + 1 < r_size; r++) {
+        for (uint32_t c = 0; c + 1 < c_size; c++) {
+            //fun switching [r][c] -> [i]
+            uint32_t top_left = c + (r * c_size);
+            uint32_t top_right = (c + 1) + (r * c_size);
+            uint32_t bot_left = c + ((r + 1) * c_size);
+            uint32_t bot_right = (c + 1) + ((r + 1) * c_size);
+
+            indices[write_idx++] = top_left;
+            indices[write_idx++] = bot_left;
+            indices[write_idx++] = top_right;
+
+            indices[write_idx++] = top_right;
+            indices[write_idx++] = bot_left;
+            indices[write_idx++] = bot_right;
+        }
+    }
+    if (!model_create(&mdl, vert, vert_count, indices, index_count, "grass.jpg")) {
+        mdl = model_create_empty();
+    }
+
+    free(vert);
+    free(indices);
+
+    return mdl;
+
 }

@@ -1,10 +1,15 @@
 #include "client.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 #include <math.h>
 #include "packet.h"
 #include "stb_ds.h"
 #include "states.h"
+#include "ground.h"
+
+#include "gun.h"
 
 void client_render(Client *client);
 
@@ -12,14 +17,15 @@ Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera);
 void client_input_test(Client* client, InputHandle *player_input, const Camera* player_camera);
 
 bool client_enet_startup(Client* client);
-bool client_enet_connect(Client* client, const char* host);
+bool client_enet_connect(Client* client, const char* host, uint32_t port);
 void client_enet_poll(Client* client);
 
-static const float CLIENT_TRACER_LIFESPAN = 0.3f;
-static const float CLIENT_TRACER_LENGTH = 500.0f;
+void update_gun_cooldowns(Client* c, float dt);
+void reload_anim(Client* c, float dt);
+void aiming_animation(Client* client, float dt);
 
 
-bool client_startup(Client *client, const char* host)
+bool client_startup(Client *client, const char* host, uint32_t port)
 {
     if (!client || !host)
         return false;
@@ -45,11 +51,16 @@ bool client_startup(Client *client, const char* host)
 
     input_init(&client->player_input, &client->win);
 
+    client->aiming = false;
+    client->mouse_sensitivity = 0.0007f;
+
     sh_new_strdup(client->model_cache);
 
     Model ground = temp_create_plane();
     Model skybox = temp_create_skybox();
     Model tea = temp_create_model("teapot.obj", "sand.jpg", client->model_cache);
+
+    Model hammer = temp_create_model("hammer.obj", "mace.png", client->model_cache);
     //Model bird = temp_create_model("figure.obj", NULL, client->model_cache);
     Model gun = temp_create_model("blunder.obj", "blunder.png", client->model_cache);
     Model othergun = temp_create_model("othergun.obj", "othergun.bmp", client->model_cache);
@@ -57,42 +68,44 @@ bool client_startup(Client *client, const char* host)
     //level_add_model(&client->level, &gun);
 
 
-    client->guns[0] = gun;
-    client->guns[1] = othergun;
-    client->guns[2] = tea;
+    client->gun_models[0] = gun;
+    client->gun_models[1] = othergun;
+    client->gun_models[2] = hammer;
 
-    client->guns[0].offset = (Vec3){0.3f, -0.3f, -0.7f};
-    client->guns[0].scale = (Vec3){0.7f, 0.7f, 0.7f};
-    client->guns[0].rotation = (Vec3){0.3f, 0.3f, -0.5f};
+    client->gun_models[0].offset = (Vec3){0.3f, -0.3f, -0.7f};
+    client->gun_models[0].scale = (Vec3){0.7f, 0.7f, 0.7f};
+    client->gun_models[0].rotation = (Vec3){0.3f, 0.3f, -0.5f};
 
-    client->guns[1].offset = (Vec3){0.3f, -0.3f, -0.7f};
-    client->guns[1].scale = (Vec3){0.12f, 0.12f, 0.12f};
-    client->guns[1].rotation = (Vec3){0.3f, 0.1f, -0.3f};
+    client->gun_models[1].offset = (Vec3){0.3f, -0.3f, -0.7f};
+    client->gun_models[1].scale = (Vec3){0.12f, 0.12f, 0.12f};
+    client->gun_models[1].rotation = (Vec3){0.3f, 0.1f, -0.3f};
 
-    client->guns[2].offset = (Vec3){0.3f, -0.3f, -0.7f};
-    client->guns[2].scale = (Vec3){0.2f, 0.2f, 0.2f};
-    client->guns[2].rotation = (Vec3){0.3f, 2.9f, -0.4f};
+    client->gun_models[2].offset = (Vec3){0.45f, -0.3f, -0.7f};
+    client->gun_models[2].scale = (Vec3){0.3f, 0.3f, 0.3f};
+    client->gun_models[2].rotation = (Vec3){0.3f, 2.9f, -0.4f};
 
     
     tea.offset = (Vec3){5.0f, 0.0f, 0.0f};
     tea.scale = (Vec3){2.0f, 2.0f, 2.0f};
 
-
+    client->guns[0] = gun_stats_blunder();
+    client->guns[1] = gun_stats_sniper();
+    client->guns[2] = gun_stats_mace();
 
 
     level_add_model(&client->level, &ground);
     level_add_model(&client->level, &skybox);
     level_add_model(&client->level, &tea);
 
-    
+    client->gun_view_offset = (Vec3){0.0f, 0.0f, 0.0f};
 
-    
 
     client->player = NULL;
 
     camera_init(&client->player_camera);
     client->player_camera.mode = 0;
 
+    srand((unsigned int)time(NULL));
     client->unique_id = ((uint64_t)(uint32_t)rand() << 32) | (uint64_t)(uint32_t)rand();
 
     client->level.client_ref = client;
@@ -100,7 +113,7 @@ bool client_startup(Client *client, const char* host)
     if (!client_enet_startup(client))
         return false;
 
-    if (!client_enet_connect(client, host))
+    if (!client_enet_connect(client, host, port))
         return false;
     
     window_add_overlay(&client->win, "fps", "FPS: 0", 20, 10);
@@ -111,6 +124,13 @@ bool client_startup(Client *client, const char* host)
     window_add_overlay_image(&client->win, "crosshair", "dot.png", (client->win.width/ 2) - 10, (client->win.height / 2) - 10);
 
     client->tracer_count = 0;
+
+    Ground* map =  &client->level.ground;
+
+    Model terrain = model_generate_map(map);
+    terrain.offset = (Vec3) {(float)map->x_size * map->xz_scale / -2.0f, 0.0f, (float)map->z_size * map->xz_scale / -2.0f};
+
+    level_add_model(&client->level, &terrain);
 
     return true;
 }
@@ -135,11 +155,12 @@ bool client_run(Client *client)
     float dt = (float)frame_ticks / (float)client->level.perf_freq;
     client->level.last_time = now;
 
-    dMouse delta_mouse = input_mouse(&client->player_input);
-    float mouse_sensitivity = 0.0007f;
+    aiming_animation(client, dt);
 
-    client->player_camera.angles.x -= delta_mouse.x * mouse_sensitivity;
-    client->player_camera.angles.y -= delta_mouse.y * mouse_sensitivity;
+    dMouse delta_mouse = input_mouse(&client->player_input);
+
+    client->player_camera.angles.x -= delta_mouse.x * client->mouse_sensitivity;
+    client->player_camera.angles.y -= delta_mouse.y * client->mouse_sensitivity;
 
     if (client->player_camera.angles.y > 1.5f)
         client->player_camera.angles.y = 1.5f;
@@ -249,10 +270,6 @@ bool client_run(Client *client)
         }
         client->player_camera.offset_vector = client->player->eye_offset;
 
-
-        if (is_state(&client->player->entity, DEAD)) {
-            return false;
-        }
     }
 
     for (uint32_t i = 0; i < client->tracer_count;) {
@@ -264,6 +281,12 @@ bool client_run(Client *client)
             i++;
         }
     }
+
+    if (client->player) {
+        reload_anim(client, dt);
+        update_gun_cooldowns(client, dt);
+    }
+    
 
     client_render(client);
     
@@ -316,7 +339,7 @@ void client_render(Client *client) {
     for (int i = 0; i < hmlen(client->level.ent_map); i++) {
 
         if (client->level.ent_map[i].key != client->server_id) {
-            render_entity(&client->level.ent_map[i].value, basic_shader, temp_color[7]);
+            render_entity(&client->level.ent_map[i].value, basic_shader, temp_color[6]);
         }
         
     }
@@ -325,8 +348,8 @@ void client_render(Client *client) {
         render_line(client->tracers[i].start, client->tracers[i].end);
     }
 
-    Vec3 gun_view_offset = (Vec3){0.0f, 0.0f, 0.0f};
-    render_model_static(&client->guns[client->player->gun_idx], &client->player_camera, gun_view_offset, basic_shader, temp_color[6]);
+    render_model_static(&client->gun_models[client->player->gun_idx], &client->player_camera, client->gun_view_offset, basic_shader, temp_color[6]);
+
 
 
     window_render_overlay(&client->win);
@@ -394,22 +417,48 @@ void client_input_test(Client* client, InputHandle *player_input, const Camera* 
         vec3_add_inplace(&client->player->entity.force, &boost_vec);
     } 
 
+    bool mb2_down = (mb.mb & SDL_BUTTON_RMASK) != 0;
+    client->aiming = mb2_down;
+
+
     static bool mb1_was_down = false;
     bool mb1_down = (mb.mb & SDL_BUTTON_LMASK) != 0;
+    
     client->player->shoot_queued = (mb1_down && !mb1_was_down);
-    if (client->player->shoot_queued) {
-        Vec3 forward = camera_forward(player_camera);
-        Vec3 start = vec3_add(&client->player->entity.position, &client->player->eye_offset);
-        Vec3 ray = vec3_multiply(&forward, CLIENT_TRACER_LENGTH);
-        Vec3 end = vec3_add(&start, &ray);
+    client->guns[client->player->gun_idx].seed = gun_seed_gen(client->guns[client->player->gun_idx]);
+    if (client->player->shoot_queued
+        && client->guns[client->player->gun_idx].wait_time <= 0.0f
+        && client->guns[client->player->gun_idx].tracers) {
 
-        Tracer tracer = {
-            start,
-            end,
-            CLIENT_TRACER_LIFESPAN
-        };
-        client_add_tracer(client, tracer);
+        uint8_t rays = 1;
+        uint8_t spread = 0;
+        gun_seed_read(client->guns[client->player->gun_idx].seed, &rays, &spread);
+        if (rays == 0) {
+            rays = 1;
+        }
+
+        Vec3 base_forward = camera_forward(player_camera);
+        base_forward = vec3_normalize(&base_forward);
+
+        Vec3 start = vec3_add(&client->player->entity.position, &client->player->eye_offset);
+
+
+        for (int i = 0; i < rays; i++) {
+            Vec3 spread_dir = gun_spread(client->guns[client->player->gun_idx].seed, (uint8_t)i, base_forward);
+
+            Vec3 ray = vec3_multiply(&spread_dir, 3000.0f);
+            Vec3 end = vec3_add(&start, &ray);
+
+            Tracer tracer = {
+                start,
+                end,
+                0.3f
+            };
+            client_add_tracer(client, tracer);
+        }
+
     }
+
     mb1_was_down = mb1_down;
 
     Vec3 forward = camera_forward(player_camera);
@@ -473,15 +522,23 @@ bool client_enet_startup(Client* client) {
     return true;
 }
 
-bool client_enet_connect(Client* client, const char* host) {
+bool client_enet_connect(Client* client, const char* host, uint32_t port) {
     if (!host) host = "127.0.0.1";
-    const enet_uint16 port = 7777;
+    if (port == 0) {
+        port = 7777;
+    }
+    if (port > 65535) {
+        fprintf(stderr, "Invalid port %u.\n", (unsigned)port);
+        return false;
+    }
+
+    enet_uint16 enet_port = (enet_uint16)port;
 
     if (enet_address_set_host(&client->address, host) != 0) {
         fprintf(stderr, "Failed to resolve host '%s'.\n", host);
         return false;
     }
-    client->address.port = port;
+    client->address.port = enet_port;
 
     client->server_peer = enet_host_connect(client->e_client, &client->address, 2, 0);
     if (client->server_peer == NULL) {
@@ -490,7 +547,7 @@ bool client_enet_connect(Client* client, const char* host) {
     }
 
     client->enet_connect_attempted = true;
-    printf("Connecting to %s:%u...\n", host, (unsigned)port);
+    printf("Connecting to %s:%u...\n", host, (unsigned)enet_port);
 
     return true;
 }
@@ -573,6 +630,7 @@ void client_enet_poll(Client* client) {
                         int idx = hmgeti(client->level.player_map, player_knock->server_id);
                         if (idx != -1) {
                             vec3_add_inplace(&client->level.player_map[idx].value.entity.velocity, &player_knock->vel_knock);
+                            client->level.player_map[idx].value.entity.position.y += 0.01f;
                         }
                     }
 
@@ -588,6 +646,22 @@ void client_enet_poll(Client* client) {
                     if (packet_type == PCKT_REMOVE_PLAYER && event.packet->dataLength >= sizeof(Packet_player)) {
                         const Packet_player* player_pack = (const Packet_player*)event.packet->data;
                         hmdel(client->level.player_map, player_pack->server_id);
+                    }
+
+                    if (packet_type == PCKT_SERVER_AUTH_RESPAWN && event.packet->dataLength >= sizeof(Packet_server_auth_respawn)) {
+                        const Packet_server_auth_respawn* respawn = (const Packet_server_auth_respawn*)event.packet->data;
+                        int idx = hmgeti(client->level.player_map, respawn->server_id);
+                        if (idx != -1) {
+
+                            level_add_ent_death(&client->level, respawn->server_id);
+
+
+                            client->level.player_map[idx].value.entity.position = respawn->pos;
+                            client->level.player_map[idx].value.entity.velocity = respawn->vel;
+                            client->level.player_map[idx].value.entity.health = respawn->heatlh;
+                            clear_state(&client->level.player_map[idx].value.entity, DEAD);
+
+                        }
                     }
                 }
 
@@ -639,4 +713,66 @@ void client_close(Client *client)
     level_destroy(&client->level);
 
     printf("\nClient closed!\n");
+}
+
+
+void weapon_sway(Model* mdl, Player* p, float dt) {
+    if (mdl == NULL || p == NULL) {return;}
+
+    //lerp slightly towards camera and velocity changes
+
+    //move / rotate model slightly left when moving left, or move / rotate
+
+
+}
+
+void reload_anim(Client* c, float dt) {
+    Player* p = c->player;
+    Gun_stats* gun = &c->guns[p->gun_idx];
+    Vec3 target = {0.0f, 0.0f, 0.0f};
+
+    if (gun->reload_time > 0.0f) {
+        float ratio = gun->wait_time / gun->reload_time;
+        if (ratio < 0.0f) ratio = 0.0f;
+        if (ratio > 1.0f) ratio = 1.0f;
+        target.y = -ratio;
+    }
+
+    float t = dt * 14.0f;
+    if (t > 1.0f) t = 1.0f;
+    c->gun_view_offset = vec3_lerp(&c->gun_view_offset, &target, t);
+
+}
+
+
+void update_gun_cooldowns(Client* c, float dt) {
+    Player* p = c->player;
+
+    Gun_stats* gun = &c->guns[p->gun_idx];
+    if (gun->wait_time) {
+        gun->wait_time -= dt;
+        if (gun->wait_time < 0.0f) {
+            gun->wait_time = 0.0f;
+        }
+    }
+}
+
+void aiming_animation(Client* client, float dt) {
+    if (!client->player) {return;}
+    const float hip_fov = 103.0f;
+    const float aim_fov = client->guns[client->player->gun_idx].aim_fov;
+    const float hip_sens = 0.0007f;
+    const float aim_sens = hip_sens * (aim_fov / hip_fov);
+
+    const float duration = client->aiming ? 0.05f : 0.01f;
+    float t = (duration > 0.0f) ? (dt / duration) : 1.0f;
+    if (t > 1.0f) t = 1.0f;
+    if (t < 0.0f) t = 0.0f;
+
+    const float target_fov = client->aiming ? aim_fov : hip_fov;
+    const float target_sens = client->aiming ? aim_sens : hip_sens;
+
+    client->player_camera.fov += (target_fov - client->player_camera.fov) * t;
+    client->mouse_sensitivity += (target_sens - client->mouse_sensitivity) * t;
+
 }

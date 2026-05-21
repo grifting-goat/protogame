@@ -13,6 +13,7 @@
 #include "server.h"
 
 char* host = "127.0.0.1";
+uint32_t port = 7777;
 
 int main(int argc, char* argv[]){
 
@@ -29,6 +30,15 @@ int main(int argc, char* argv[]){
             if (argc > 2) {
                 host = argv[2];
             }
+            if (argc > 3) {
+                char* end_ptr = NULL;
+                unsigned long parsed = strtoul(argv[3], &end_ptr, 10);
+                if (end_ptr && *end_ptr == '\0' && parsed > 0 && parsed <= 65535) {
+                    port = (uint32_t)parsed;
+                } else {
+                    printf("Invalid port '%s', using default 7777.\n", argv[3]);
+                }
+            }
         }
     }
 
@@ -42,7 +52,7 @@ int main(int argc, char* argv[]){
     }
 
     if (c) {
-        client_startup(&client, host);
+        client_startup(&client, host, port);
     }
 
 

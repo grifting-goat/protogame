@@ -1,6 +1,7 @@
 #include "server.h"
 #include "stb_ds.h"
 
+
 const char* server_tag = "Server: ";
 
 
@@ -14,6 +15,10 @@ bool server_startup(Server* server){
     server->level.server_ref = server;
 
     if (!server_enet_startup(server)) return false;
+
+    server->guns[0] = gun_stats_blunder();
+    server->guns[1] = gun_stats_sniper();
+    server->guns[2] = gun_stats_mace();
 
 
     printf("%sserver started...\n", server_tag);
@@ -191,7 +196,9 @@ void server_enet_poll(Server* s) {
                         int idx = hmgeti(s->level.player_map, pos->server_id);
                         if (idx != -1) {
                             s->level.player_map[idx].value.shoot_queued = true;
-                        }
+                            s->level.player_map[idx].value.gun_idx = pos->gun_idx;
+                            s->guns[pos->gun_idx].seed = pos->seed;
+                        }   
 
                     }
 
@@ -226,7 +233,6 @@ void server_enet_poll(Server* s) {
         }
     }
 }
-
 
 void server_close(Server* server) {
     if (!server) return;

@@ -99,7 +99,7 @@ void render_model_static(Model* model, const Camera* camera, Vec3 view_offset, S
     Mat4 identity = mat4_identity();
     shader_set_mat4(shader, "view", &identity);
 
-    const float viewmodel_fov = 1.0471976f; 
+    const float viewmodel_fov = 60.0f; 
     float aspect = (camera->aspect > 0.0f) ? camera->aspect : (16.0f / 9.0f);
     Mat4 viewmodel_projection = mat4_perspective(viewmodel_fov, aspect, camera->near_plane, camera->far_plane);
     shader_set_mat4(shader, "projection", &viewmodel_projection);

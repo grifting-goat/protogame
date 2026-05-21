@@ -66,6 +66,8 @@ static inline float vec3_distance_squared(const Vec3* a, const Vec3* b) {
 void vec3_normalize_inplace(Vec3* v);
 Vec3 vec3_normalize(const Vec3* v);
 Vec3 vec3_cross(const Vec3* a, const Vec3* b);
+Vec3 vec3_lerp(const Vec3* from, const Vec3* to, float t);
+Vec3 vec3_lerp_inplace(Vec3* from, const Vec3* to, float t);
 
 
 //Mat4 struct

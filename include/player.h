@@ -3,6 +3,8 @@
 
 #include "entity.h"
 #include <stdint.h>
+#include "gun.h"
+
 
 typedef struct {
     Vec3 wish_dir;
@@ -14,6 +16,8 @@ typedef struct {
     float air_acceleration;
     float air_speed_cap;
 
+    float air_fric_threshold;
+
     float run_speed;
     float walk_speed;
     float air_speed;
@@ -24,13 +28,11 @@ typedef struct {
     bool slide_queued;
     float slide_friction;
 
-
-
 } Player_movement;
 
 
 
-typedef struct {
+typedef struct Player {
     Entity entity;
     Vec3 eye_offset; //how high the camera is placed over the centroid
 

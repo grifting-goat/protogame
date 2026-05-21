@@ -8,6 +8,7 @@
 
 typedef struct Level Level;
 typedef struct Entity Entity;
+typedef struct Player Player;
 
 #define MAX_TICK_DELAY 10
 
@@ -30,6 +31,8 @@ void physics_world_update(Level* level, float dt);
 void physics_step(Level* level, float dt);
 
 void physics_update_states(Level* level, Entity* ent);
+
+Player* ray_check_player_collison(Level* level, Player* shooter, float max_ray_len, float step);
 
 
 #endif //PHYSICS_H

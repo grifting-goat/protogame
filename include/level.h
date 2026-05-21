@@ -12,6 +12,9 @@
 #include "help.h"
 #include "physics.h"
 
+#include "ground.h"
+
+
 typedef struct Server Server;
 typedef struct Client Client;
 
@@ -24,7 +27,6 @@ typedef struct {
     uint32_t key;
     Entity value;
 } EntityMapEntry;
-
 
 typedef struct Level {
     bool server;
@@ -45,9 +47,13 @@ typedef struct Level {
     uint32_t model_count;
 
     PhysicsWorld physics;
+    Ground ground;
+
 
     Server* server_ref;
     Client* client_ref;
+
+    Vec3 level_spawn;
 
 } Level;
 
@@ -55,6 +61,7 @@ bool level_create(Level* level, uint32_t tick_rate);
 bool level_update(Level* level, float delta_time);
 bool level_add_model(Level* level, Model* model);
 bool level_add_player(Level* level, uint64_t uqid, uint32_t server_id);
+bool level_add_ent_death(Level* level, uint32_t server_id);
 void level_destroy(Level* level);
 
 #endif // LEVEL_H

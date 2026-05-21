@@ -6,8 +6,10 @@
 #include "window.h"
 #include "level.h"
 #include "player.h"
+#include "gun.h"
 #include "render.h"
 #include "camera.h"
+
 
 typedef struct {
     Vec3 start;
@@ -42,12 +44,16 @@ typedef struct Client {
 
     ModelHashMap* model_cache;
 
-    Model guns[3];
+    Model gun_models[3];
+    Gun_stats guns[3];
+    Vec3 gun_view_offset;
+
+    float mouse_sensitivity;
+    bool aiming;
 
 } Client;
 
-bool client_startup(Client* client, const char* host);
-
+bool client_startup(Client* client, const char* host, uint32_t port);
 
 bool client_run(Client* client);
 

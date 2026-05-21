@@ -6,6 +6,7 @@
 #include "enet.h"
 #include "level.h"
 #include "packet.h"
+#include "gun.h"
 
 #define MAX_CLIENTS 32
 
@@ -16,6 +17,8 @@ typedef struct Server {
 
     ENetAddress address;
     ENetHost* e_server;
+
+    Gun_stats guns[3];
 } Server;
 
 bool server_startup(Server* server);
