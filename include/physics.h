@@ -15,10 +15,10 @@ typedef struct Player Player;
 
 typedef struct {
 
-    uint32_t tick_rate_physics;
-    float tick_freq_physics;
-    float accumulator_physics;
-    float max_accumulator_physics;
+    //uint32_t tick_rate_physics;
+    //float tick_freq_physics;
+    //float accumulator_physics;
+    //float max_accumulator_physics;
 
     Vec3 gravity;
 
@@ -26,9 +26,10 @@ typedef struct {
 
 void physics_init(Level* level);
 
-void physics_world_update(Level* level, float dt);
+//void physics_world_update(Level* level, float dt);
 
 void physics_step(Level* level, float dt);
+void physics_step_player(Level* level, Player* p, float dt);
 
 void physics_update_states(Level* level, Entity* ent);
 

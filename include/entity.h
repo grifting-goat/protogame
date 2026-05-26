@@ -12,12 +12,18 @@ typedef struct Entity {
     Model model;
     Vec3 force; 
     Vec3 position;
+    Vec3 prev_position;
     Vec3 velocity;
     Vec3 acceleration;
+
+    float high_y;
     float radius;
     float mass;
 
     float health;
+
+    bool timed;
+    float life_time;
 
     uint32_t states; //controls all states through 1s hot and macros
 

@@ -13,6 +13,7 @@
 #include "physics.h"
 
 #include "ground.h"
+#include "event.h"
 
 
 typedef struct Server Server;
@@ -28,9 +29,18 @@ typedef struct {
     Entity value;
 } EntityMapEntry;
 
+#define MAX_TICK_DELAY 10
+
 typedef struct Level {
     bool server;
+
+    int tick;
     uint32_t tick_rate;
+    float tick_time;
+    uint32_t server_time;
+
+    float accumulator;
+    float max_accumulator;
 
     Uint64 perf_freq;
     Uint64 last_time;
@@ -53,7 +63,9 @@ typedef struct Level {
     Server* server_ref;
     Client* client_ref;
 
-    Vec3 level_spawn;
+    Vec3 level_spawn[8];
+
+    sysEventBus event_bus;
 
 } Level;
 
@@ -63,5 +75,7 @@ bool level_add_model(Level* level, Model* model);
 bool level_add_player(Level* level, uint64_t uqid, uint32_t server_id);
 bool level_add_ent_death(Level* level, uint32_t server_id);
 void level_destroy(Level* level);
+
+void level_proccess_events(Level* level);
 
 #endif // LEVEL_H

@@ -4,6 +4,7 @@
 #include "entity.h"
 #include <stdint.h>
 #include "gun.h"
+#include "event.h"
 
 
 typedef struct {
@@ -28,9 +29,30 @@ typedef struct {
     bool slide_queued;
     float slide_friction;
 
+    bool dash_queued;
+
 } Player_movement;
 
+typedef struct {
+    uint32_t current_charges;
+    uint32_t max_charges;
 
+    uint32_t dash_vel;
+
+    float cast_wait;
+    float cast_wait_time;
+
+    float recharge_wait;
+    float recharge_wait_time;
+} Player_dash;
+
+
+typedef struct {
+    uint32_t gun_count;
+    Gun_stats* guns;
+} Player_guns;
+
+void player_guns_destroy(Player_guns* pg);
 
 typedef struct Player {
     Entity entity;
@@ -42,10 +64,14 @@ typedef struct Player {
     const char* player_name;
 
     Player_movement movement;
-
-    bool shoot_queued; //temp
+    Player_dash dash;
 
     uint32_t gun_idx;
+    Player_guns guns;
+
+    bool shoot_queued;
+
+    sysEventBus event_bus;
 
 } Player;
 

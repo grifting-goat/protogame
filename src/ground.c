@@ -40,32 +40,85 @@ void ground_generate_noise(Ground* ground, int seed) {
         }
     }
 
-    
 
-
-
-
-    ground->height_map = convolve(ground->height_map, ground->x_size ,ground->z_size);
-    ground->height_map = convolve(ground->height_map, ground->x_size ,ground->z_size);
-
-    for (int x = 70; x < 90; x++) {
-            ground->height_map[x][59] = ground->max_y * 1.0f;
-            ground->height_map[x][60] = ground->max_y * 1.6f;
-            ground->height_map[x][61] = ground->max_y * 1.6f;
-            ground->height_map[x][62] = ground->max_y * 1.0f;
+    for (int x = 0; x < (int)ground->x_size; x++) {
+        for (int z = 0; z < (int)ground->z_size; z++) {
+            int dx = x - 74;
+            int dz = z - 74;
+            if (dx * dx + dz * dz > 70 * 70) {
+                ground->height_map[x][z] = (uint32_t)(ground->max_y + ground->max_y * 0.2f * ((rand() % 10) - 1));
+            }
+        }
     }
-    ground->height_map[69][62] = ground->max_y * 0.5f;
-    ground->height_map[69][61] = ground->max_y * 0.5f;
-    ground->height_map[69][60] = ground->max_y * 0.5f;
-    ground->height_map[69][59] = ground->max_y * 0.5f;
 
+        // Ramp 4 (diagonal, not axis-aligned, within bounds)
+    for (int i = 0; i < 20 && 110 + i < ground->x_size && 20 + i < ground->z_size; i++) {
+        int x = 110 + i;
+        int z = 20 + i;
+        ground->height_map[x][z] = ground->max_y * 1.0f;
+        ground->height_map[x][z+1] = ground->max_y * 1.6f;
+        ground->height_map[x][z+2] = ground->max_y * 1.6f;
+        ground->height_map[x][z+3] = ground->max_y * 1.0f;
+    }
+    ground->height_map[109][23] = ground->max_y * 0.5f;
+    ground->height_map[109][22] = ground->max_y * 0.5f;
+    ground->height_map[109][21] = ground->max_y * 0.5f;
+    ground->height_map[109][20] = ground->max_y * 0.5f;
+    ground->height_map[130][43] = ground->max_y * 0.5f;
+    ground->height_map[130][42] = ground->max_y * 0.5f;
+    ground->height_map[130][41] = ground->max_y * 0.5f;
+    ground->height_map[130][40] = ground->max_y * 0.5f;
 
-    ground->height_map[90][62] = ground->max_y * 0.5f;
-    ground->height_map[90][61] = ground->max_y * 0.5f;
-    ground->height_map[90][60] = ground->max_y * 0.5f;
-    ground->height_map[90][59] = ground->max_y * 0.5f;
+    ground->height_map = convolve(ground->height_map, ground->x_size ,ground->z_size);
+    ground->height_map = convolve(ground->height_map, ground->x_size ,ground->z_size);
 
+    // Ramp 1 (original style, within bounds)
+    for (int x = 30; x < 50 && x < ground->x_size; x++) {
+        ground->height_map[x][29] = ground->max_y * 1.0f;
+        ground->height_map[x][30] = ground->max_y * 1.6f;
+        ground->height_map[x][31] = ground->max_y * 1.6f;
+        ground->height_map[x][32] = ground->max_y * 1.0f;
+    }
+    ground->height_map[29][32] = ground->max_y * 0.5f;
+    ground->height_map[29][31] = ground->max_y * 0.5f;
+    ground->height_map[29][30] = ground->max_y * 0.5f;
+    ground->height_map[29][29] = ground->max_y * 0.5f;
+    ground->height_map[50][32] = ground->max_y * 0.5f;
+    ground->height_map[50][31] = ground->max_y * 0.5f;
+    ground->height_map[50][30] = ground->max_y * 0.5f;
+    ground->height_map[50][29] = ground->max_y * 0.5f;
 
+    // Ramp 2 (shifted right, within bounds)
+    for (int x = 80; x < 100 && x < ground->x_size; x++) {
+        ground->height_map[x][60] = ground->max_y * 1.0f;
+        ground->height_map[x][61] = ground->max_y * 1.6f;
+        ground->height_map[x][62] = ground->max_y * 1.6f;
+        ground->height_map[x][63] = ground->max_y * 1.0f;
+    }
+    ground->height_map[79][63] = ground->max_y * 0.5f;
+    ground->height_map[79][62] = ground->max_y * 0.5f;
+    ground->height_map[79][61] = ground->max_y * 0.5f;
+    ground->height_map[79][60] = ground->max_y * 0.5f;
+    ground->height_map[100][63] = ground->max_y * 0.5f;
+    ground->height_map[100][62] = ground->max_y * 0.5f;
+    ground->height_map[100][61] = ground->max_y * 0.5f;
+    ground->height_map[100][60] = ground->max_y * 0.5f;
+
+    // Ramp 3 (vertical orientation, within bounds)
+    for (int z = 80; z < 100 && z < ground->z_size; z++) {
+        ground->height_map[60][z] = ground->max_y * 1.0f;
+        ground->height_map[61][z] = ground->max_y * 1.6f;
+        ground->height_map[62][z] = ground->max_y * 1.6f;
+        ground->height_map[63][z] = ground->max_y * 1.0f;
+    }
+    ground->height_map[63][79] = ground->max_y * 0.5f;
+    ground->height_map[62][79] = ground->max_y * 0.5f;
+    ground->height_map[61][79] = ground->max_y * 0.5f;
+    ground->height_map[60][79] = ground->max_y * 0.5f;
+    ground->height_map[63][100] = ground->max_y * 0.5f;
+    ground->height_map[62][100] = ground->max_y * 0.5f;
+    ground->height_map[61][100] = ground->max_y * 0.5f;
+    ground->height_map[60][100] = ground->max_y * 0.5f;
 
 }
 

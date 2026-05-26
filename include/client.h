@@ -9,21 +9,32 @@
 #include "gun.h"
 #include "render.h"
 #include "camera.h"
+#include "sound.h"
+#include "packet.h"
+
+#define INPUT_BUFFER_SIZE 512
 
 
 typedef struct {
     Vec3 start;
     Vec3 end;
 
+    Vec3 color;
+
     float lifespan;
 
 } Tracer;
+
+
 
 
 typedef struct Client {
     Window win;
     Level level;
     Player* player;
+    SoundSystem sound;
+
+    int tick;
     
     Camera player_camera;
     InputHandle player_input;
@@ -45,19 +56,30 @@ typedef struct Client {
     ModelHashMap* model_cache;
 
     Model gun_models[3];
-    Gun_stats guns[3];
     Vec3 gun_view_offset;
 
-    float mouse_sensitivity;
+    bool dead;
     bool aiming;
+    float mouse_sensitivity;
+    float hit_overlay_timer;
+
+    usercmd_t input_buffer[INPUT_BUFFER_SIZE];
+    uint32_t input_buffer_idx;
+
+    uint32_t actions;
+
+    Vec3 stationary_vec;
+    Model dead_mdl;
 
 } Client;
 
 bool client_startup(Client* client, const char* host, uint32_t port);
 
-bool client_run(Client* client);
+void client_render(Client *client, float alpha);
 
 void client_add_tracer(Client* client, Tracer tracer);
+
+void client_input_actions(Client* client);
 
 void client_close(Client* client);
 

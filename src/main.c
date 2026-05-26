@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <signal.h>
 
 #define ENET_IMPLEMENTATION
 #include "enet.h"
@@ -14,6 +15,13 @@
 
 char* host = "127.0.0.1";
 uint32_t port = 7777;
+
+static volatile int g_running = 1;
+
+static void handle_sigint(int sig) {
+    (void)sig;
+    g_running = 0;
+}
 
 int main(int argc, char* argv[]){
 
@@ -43,6 +51,7 @@ int main(int argc, char* argv[]){
     }
 
     srand((unsigned int)time(NULL));
+    signal(SIGINT, handle_sigint);
 
     Server server = {0};
     Client client = {0};
@@ -56,7 +65,7 @@ int main(int argc, char* argv[]){
     }
 
 
-    while (1) {
+    while (g_running) {
         if (c) {
             if (!client_run(&client)) break;
         }

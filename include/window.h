@@ -41,7 +41,9 @@ bool window_update_overlay(Window* win, const char* key, const char* text);
 
 bool window_add_overlay_image(Window* win, const char* key, const char* image_path, int x, int y);
 
-bool window_update_overlay_image(Window* win, const char* key, int x, int y);
+bool window_update_overlay_image(Window* win, const char* key, int x, int y, bool show);
+
+bool window_toggle_overlay_image(Window* win, const char* key, bool show);
 
 void window_render_overlay(Window* win);
 

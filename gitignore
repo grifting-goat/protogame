@@ -1,0 +1,9 @@
+build/
+bin/
+.vscode/
+.mtl/
+.vcxproj/
+.vcxproj.filters/
+.figure_tea.obj
+.figure.obj
+

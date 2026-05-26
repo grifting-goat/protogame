@@ -31,9 +31,9 @@ static inline Gun_stats gun_stats_blunder() {
     Gun_stats gun;
     gun.damage = 10.0f;
     gun.knockback = 2.0f;
-    gun.knockback_y = 1.0f;
-    gun.range = 100.0f,
-    gun.seed = 9U | (25U << 8);
+    gun.knockback_y = 1.3f;
+    gun.range = 120.0f,
+    gun.seed = 9U | (30U << 8);
     gun.reload_time = 1.0f;
     gun.wait_time = 0.0f;
     gun.aim_fov = 70.0f;
@@ -46,9 +46,9 @@ static inline Gun_stats gun_stats_sniper() {
     gun.damage = 70.0f;
     gun.knockback = 0.0f;
     gun.knockback_y = 0.0f;
-    gun.range = 300.0f,
+    gun.range = 400.0f,
     gun.seed = 1U | (0U << 8);
-    gun.reload_time = 1.5f;
+    gun.reload_time = 1.8f;
     gun.wait_time = 0.0f;
     gun.aim_fov = 45.0f;
     gun.tracers = true;
@@ -71,12 +71,12 @@ static inline Gun_stats gun_stats_teapot() {
 
 static inline Gun_stats gun_stats_mace() {
     Gun_stats gun;
-    gun.damage = 5.0f;
+    gun.damage = 26.0f;
     gun.knockback = 6.0f;
     gun.knockback_y = 2.0f;
-    gun.range = 3.5f,
+    gun.range = 4.2f,
     gun.seed = 1U | (0U << 8);
-    gun.reload_time = 0.6f;
+    gun.reload_time = 0.45f;
     gun.wait_time = 0.0f;
     gun.aim_fov = 103.0f;
     gun.tracers = false;

@@ -1,5 +1,6 @@
 #include "server.h"
 #include "stb_ds.h"
+#include "event.h"
 
 
 const char* server_tag = "Server: ";
@@ -14,12 +15,10 @@ bool server_startup(Server* server){
     server->level.server = true;
     server->level.server_ref = server;
 
+    if (!sound_init(&server->sound)) return false;
+    sound_sync_loader(&server->sound);
+
     if (!server_enet_startup(server)) return false;
-
-    server->guns[0] = gun_stats_blunder();
-    server->guns[1] = gun_stats_sniper();
-    server->guns[2] = gun_stats_mace();
-
 
     printf("%sserver started...\n", server_tag);
     return true;
@@ -41,13 +40,14 @@ bool server_run(Server* server) {
     server->level.frame_count++;
         if (server->level.fps_time_accum >= server->level.perf_freq) {
             double fps = (double)server->level.frame_count * (double)server->level.perf_freq / (double)server->level.fps_time_accum;
-            printf("%sPasses:%d\r", server_tag, server->level.frame_count);
+            //printf("%sPasses:%d\r", server_tag, server->level.frame_count);
             fflush(stdout);
             server->level.fps_time_accum = 0;
             server->level.frame_count = 0;
         }
     
     server_enet_poll(server);
+    server->level.server_time += (uint32_t)(dt * 1000.0f);
     level_update(&server->level, dt);
     
 
@@ -64,7 +64,10 @@ bool server_run(Server* server) {
                 server->level.player_map[i].value.movement.cam_forward,
                 server->level.player_map[i].value.entity.states,
                 server->level.player_map[i].value.entity.health,
-                server->level.player_map[i].value.eye_offset
+                server->level.player_map[i].value.eye_offset,
+                server->level.tick,
+                server->level.server_time,
+                server->level.player_map[i].value.dash.current_charges
             };
             ENetPacket* packet = enet_packet_create(
                 &payload,
@@ -174,7 +177,7 @@ void server_enet_poll(Server* s) {
                     if (packet_type == PCKT_CLIENT_STATE && event.packet->dataLength == sizeof(Packet_state)) {
                         const Packet_state* pos = (const Packet_state*)event.packet->data;
                         int idx = hmgeti(s->level.player_map, pos->server_id);
-                        if (idx != -1) {
+                        /*if (idx != -1) {
                             s->level.player_map[idx].value.entity.position = pos->pos;
                             s->level.player_map[idx].value.entity.velocity= pos->vel;
                             s->level.player_map[idx].value.movement.cam_forward = pos->cam_dir;
@@ -186,8 +189,35 @@ void server_enet_poll(Server* s) {
                                 right = (Vec3){1.0f, 0.0f, 0.0f};
                             }
                             s->level.player_map[idx].value.movement.cam_right = right;
-                            s->level.player_map[idx].value.entity.states = pos->state;
-                            s->level.player_map[idx].value.eye_offset = pos->cam_offset;
+                            //s->level.player_map[idx].value.entity.states = pos->state;
+                            //s->level.player_map[idx].value.eye_offset = pos->cam_offset;
+                        }*/
+                    }
+
+                    if (packet_type == PCKT_USERCMD && event.packet->dataLength == sizeof(Packet_usercmd)) {
+                        const Packet_usercmd* ucmd = (const Packet_usercmd*)event.packet->data;
+                        uint32_t player_id = (uint32_t)event.peer->incomingPeerID;
+                        int idx = hmgeti(s->level.player_map, player_id);
+                        if (idx != -1) {
+                            Player* p = &s->level.player_map[idx].value;
+                            p->movement.cam_forward = ucmd->cmd.angles;
+                            p->movement.wish_dir = ucmd->cmd.wishdir;
+                            Vec3 up = {0.0f, 1.0f, 0.0f};
+                            Vec3 right = vec3_cross(&up, &ucmd->cmd.angles);
+                            if (vec3_mag_squared(&right) > 0.0f) {
+                                vec3_normalize_inplace(&right);
+                            } else {
+                                right = (Vec3){1.0f, 0.0f, 0.0f};
+                            }
+                            p->movement.cam_right = right;
+                            p->gun_idx = ucmd->cmd.gun_idx;
+                            p->movement.jump_queued = (ucmd->cmd.buttons & (1U << JUMP)) != 0;
+                            if (ucmd->cmd.buttons & (1U << DASH)) {
+                                sys_queueEvent(&p->event_bus, ucmd->cmd.tick, SE_KEY, DASH, 1, 0, NULL);
+                            }
+                            if (ucmd->cmd.buttons & (1U << SHOOT)) {
+                                sys_queueEvent(&p->event_bus, ucmd->cmd.tick, SE_KEY, SHOOT, 1, 0, NULL);
+                            }
                         }
                     }
 
@@ -197,7 +227,7 @@ void server_enet_poll(Server* s) {
                         if (idx != -1) {
                             s->level.player_map[idx].value.shoot_queued = true;
                             s->level.player_map[idx].value.gun_idx = pos->gun_idx;
-                            s->guns[pos->gun_idx].seed = pos->seed;
+                            s->level.player_map[idx].value.guns.guns[pos->gun_idx].seed = pos->seed;
                         }   
 
                     }
@@ -236,6 +266,7 @@ void server_enet_poll(Server* s) {
 
 void server_close(Server* server) {
     if (!server) return;
+    sound_shutdown(&server->sound);
     level_destroy(&server->level);
 
     enet_host_destroy(server->e_server);

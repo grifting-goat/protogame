@@ -16,6 +16,47 @@
 #define PCKT_SERVER_AUTH_KNOCK 0x07
 #define PCKT_TRACER 0x08
 #define PCKT_SERVER_AUTH_RESPAWN 0x09
+#define PCKT_SERVER_AUTH_DEAD 0x0A
+
+
+#define PCKT_HIT_VERIFY 0x10
+
+#define PCKT_ADD_SOUND 0x11
+#define PCKT_USERCMD 0x12
+
+typedef struct {
+
+	int				tick;
+	Vec3		    angles;
+	uint32_t	    buttons;
+	uint32_t		gun_idx;
+
+    Vec3            wishdir;
+
+} usercmd_t;
+
+typedef struct {
+    int tick;
+    Vec3 cam_forward;
+    Vec3 position;
+    Vec3 velocity;
+
+    uint32_t state;
+    uint32_t gun_idx;
+
+} userstate_t;
+
+typedef enum {
+    DASH = 0,
+    SHOOT,
+    FORWARD,
+    RIGHT,
+    LEFT,
+    BACKWARD,
+    JUMP
+
+} actions;
+
 
 typedef struct {
     uint8_t pckt_id;
@@ -32,10 +73,16 @@ typedef struct {
     Vec3 cam_dir;
 
     uint32_t state;
+
     float health;
 
     Vec3 cam_offset;
-    
+
+    int      server_tick;
+    uint32_t server_time;
+
+    int      current_charges;
+
 } Packet_state;
 
 
@@ -90,9 +137,55 @@ typedef struct {
 
     Vec3 pos;
     Vec3 vel;
-    float heatlh;
+    float health;
 
 } Packet_server_auth_respawn;
+
+typedef struct {
+    uint8_t pckt_id;
+    uint32_t server_id;
+
+} Packet_server_auth_dead;
+
+typedef struct {
+    uint8_t pckt_id;
+    uint32_t server_id;
+
+    uint32_t hit_server_id;
+
+    uint32_t gun_idx;
+    float damage_amount;
+
+    bool kill;
+
+} Packet_hit_verify;
+
+typedef struct {
+    uint8_t pckt_id;
+    uint32_t server_id;
+
+    bool client_side;
+
+    Vec3 location;
+    int sound_id;
+
+    float volume;
+    float range;
+
+} Packet_add_sound;
+
+
+typedef struct {
+    uint8_t pckt_id;
+    usercmd_t cmd;
+
+} Packet_usercmd;
+
+
+
+
+
+
 
 
 

@@ -34,29 +34,40 @@ void camera_deattach(Camera* cam) {
 }
 
 
-void camera_mode_control(Camera* cam, Vec3* offset_1, Vec3* offset_3) {
+void camera_mode_control(Camera* cam, Vec3* offset_1, Vec3* offset_3, float dt) {
+    if (!cam || !offset_1 || !offset_3) {
+        return;
+    }
+
+    Vec3 desired_offset = *offset_1;
     switch (cam->mode) {
         case 1: //1st
-            cam->offset_vector = *offset_1;
+            desired_offset = *offset_1;
             break;
         case 0: //3rd
             Vec3 forward = camera_forward(cam);
             Vec3 up = {0.0f, 1.0f, 0.0f};
             Vec3 right = camera_right(cam);
-            cam->offset_vector.x = 0
+            desired_offset.x = 0
                 - forward.x * offset_3->z
                 + up.x * offset_3->y
                 + right.x * offset_3->x;
-            cam->offset_vector.y = 0 + offset_1->y
+            desired_offset.y = 0 + offset_1->y
                 - forward.y * offset_3->z
                 + up.y * offset_3->y
                 + right.y * offset_3->x;
-            cam->offset_vector.z = 0
+            desired_offset.z = 0
                 - forward.z * offset_3->z
                 + up.z * offset_3->y
                 + right.z * offset_3->x;
             break;
     }
+
+    const float cam_lerp_duration = 0.08f;
+    float t = (cam_lerp_duration > 0.0f) ? (dt / cam_lerp_duration) : 1.0f;
+    if (t > 1.0f) t = 1.0f;
+    if (t < 0.0f) t = 0.0f;
+    cam->offset_vector = vec3_lerp(&cam->offset_vector, &desired_offset, t);
 
 }
 

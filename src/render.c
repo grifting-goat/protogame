@@ -4,19 +4,19 @@
 #include "stb_image.h"
 
 
-void render_entity(Entity* ent, Shader* shader, Vec3 color) {
+void render_entity_at(Entity* ent, Vec3 pos, Shader* shader, Vec3 color) {
     Model* model = &ent->model;
     shader_set_int(shader, "useLighting", model->use_lighting ? 1 : 0);
     if (model->mesh.texture != 0) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, model->mesh.texture);
-        shader_set_int(shader, "texSampler", 0); // set sampler2D uniform to 0
+        shader_set_int(shader, "texSampler", 0);
         shader_set_int(shader, "useTexture", 1);
     } else {
         shader_set_int(shader, "useTexture", 0);
     }
     
-    Mat4 offset = mat4_translate(vec3_add(&model->offset, &ent->position));
+    Mat4 offset = mat4_translate(vec3_add(&model->offset, &pos));
     Mat4 scale = mat4_scale(model->scale);
     Mat4 rot_x = mat4_rotate_x(model->rotation.x);
     Mat4 rot_y = mat4_rotate_y(model->rotation.y);
@@ -26,7 +26,10 @@ void render_entity(Entity* ent, Shader* shader, Vec3 color) {
     shader_set_mat4(shader, "model", &new_model);
     shader_set_vec3(shader, "objectColor", &color);
     model_draw(model);
+}
 
+void render_entity(Entity* ent, Shader* shader, Vec3 color) {
+    render_entity_at(ent, ent->position, shader, color);
 }
 
 void render_model(Model* model, Vec3 pos, Shader* shader, Vec3 color) {
@@ -128,7 +131,7 @@ void render_model_static(Model* model, const Camera* camera, Vec3 view_offset, S
     }
 }
 
-void render_line(const Vec3 start, const Vec3 end) {
+void render_line(const Vec3 start, const Vec3 end, const Vec3 color) {
     GLint current_program = 0;
     glGetIntegerv(GL_CURRENT_PROGRAM, &current_program);
     if (current_program == 0) {
@@ -152,7 +155,7 @@ void render_line(const Vec3 start, const Vec3 end) {
         glUniform1i(use_lighting_loc, 0);
     }
     if (color_loc != -1) {
-        glUniform3f(color_loc, 1.0f, 1.0f, 1.0f);
+        glUniform3f(color_loc, color.x, color.y, color.z);
     }
 
     if (model_loc != -1) {

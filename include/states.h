@@ -12,6 +12,8 @@
 #define GLIDING (1 << 6)
 #define DEAD (1 << 7)
 
+#define THIRDPERSON (1 << 8)
+
 
 static inline bool is_state(Entity* ent, uint32_t flag)  { return ent->states & flag; }
 

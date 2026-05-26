@@ -1,6 +1,7 @@
 #ifndef OVERLAY_H
 #define OVERLAY_H
 
+#include <stdbool.h>
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 
@@ -20,6 +21,7 @@ typedef struct {
     int height;
     int x;
     int y;
+	bool show;
 } OverlayImage;
 
 

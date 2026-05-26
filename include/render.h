@@ -12,13 +12,15 @@ typedef struct {
     GLuint tex;
 } TexCacheEntry; //eventually move this to a hashmap
 
+void render_entity_at(Entity* ent, Vec3 pos, Shader* shader, Vec3 color);
+
 void render_entity(Entity* ent, Shader* shader, Vec3 color);
 
 void render_model(Model* model, Vec3 pos, Shader* shader, Vec3 color);
 
 void render_model_static(Model* model, const Camera* camera, Vec3 view_offset, Shader* shader, Vec3 color);
 
-void render_line(const Vec3 start, const Vec3 end);
+void render_line(const Vec3 start, const Vec3 end, const Vec3 color);
 
 GLuint load_texture(const char* filename);
 

@@ -111,6 +111,7 @@ bool window_add_overlay_image(Window* win, const char* key, const char* image_pa
     OverlayImage img;
     memset(&img, 0, sizeof(img));
     if (!overlay_create_image(&img, image_path, x, y)) return false;
+    img.show = true;
 
     int idx = shgeti(win->overlay_image_map, key);
     if (idx != -1) {
@@ -123,13 +124,23 @@ bool window_add_overlay_image(Window* win, const char* key, const char* image_pa
     return true;
 }
 
-bool window_update_overlay_image(Window* win, const char* key, int x, int y) {
+bool window_update_overlay_image(Window* win, const char* key, int x, int y, bool show) {
     if (!win || !key) return false;
     int idx = shgeti(win->overlay_image_map, key);
     if (idx == -1) return false;
 
     win->overlay_image_map[idx].value.x = x;
     win->overlay_image_map[idx].value.y = y;
+    win->overlay_image_map[idx].value.show = show;
+    return true;
+}
+
+bool window_toggle_overlay_image(Window* win, const char* key, bool show) {
+    if (!win || !key) return false;
+    int idx = shgeti(win->overlay_image_map, key);
+    if (idx == -1) return false;
+
+    win->overlay_image_map[idx].value.show = show;
     return true;
 }
 
@@ -141,7 +152,9 @@ void window_render_overlay(Window* win) {
     }
 
     for (int i = 0; i < shlen(win->overlay_image_map); i++) {
-        overlay_render_image(&win->overlay_image_map[i].value, win->width, win->height);
+        if (win->overlay_image_map[i].value.show) {
+            overlay_render_image(&win->overlay_image_map[i].value, win->width, win->height);
+        }
     }
 }
 

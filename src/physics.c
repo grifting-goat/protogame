@@ -32,6 +32,9 @@ void physics_get_height_and_slope(const Level* level, const Vec3* world_pos, flo
 float exp_decay(float max, float x, float rate);
 float logistic_s(float max, float x, float start, float rate);
 
+void handle_dash_client(Client* c, Player* p, float dt);
+void handle_dash(Player* p, float dt);
+
 void physics_funny_bounds_check(Entity* ent);
 
 Player* ray_check_player_collison(Level* level, Player* shooter, float max_ray_len, float step);
@@ -41,17 +44,18 @@ static bool check_map_touching(Level* level, Entity* ent, float max_dist, Vec3* 
 
 void physics_init(Level* level) {
     PhysicsWorld* world = &level->physics;
-
+    /*
     world->tick_rate_physics = level->tick_rate;
     world->tick_freq_physics = 1.0f / (float)level->tick_rate;
     world->accumulator_physics = 0.0f;
 
     world->max_accumulator_physics = world->tick_freq_physics * MAX_TICK_DELAY;
-    
+    */
     world->gravity = (Vec3){0.0f, -9.81f, 0.0f};
 
 }
 
+/*
 void physics_world_update(Level* level, float dt) {
     PhysicsWorld* world = &level->physics;
     world->accumulator_physics += dt;
@@ -63,7 +67,7 @@ void physics_world_update(Level* level, float dt) {
         world->accumulator_physics -= world->tick_freq_physics;
     }
 
-}
+}*/
 
 void physics_step(Level* level, float dt) {
     PhysicsWorld* world = &level->physics;
@@ -72,10 +76,18 @@ void physics_step(Level* level, float dt) {
         Player* p = &level->player_map[i].value;
         Entity* ent = &level->player_map[i].value.entity;
 
+        ent->prev_position = ent->position;
+
+        if (level->client_ref != NULL && !level->server) {
+            //handle_dash_client(level->client_ref, p, dt);
+        } else {
+            //handle_dash(p, dt);
+        }
+
         physics_update_states(level, ent);
 
         if (is_state(ent, GROUNDED)) {
-            float y_level = physics_sample_ground_height(level, &ent->position);
+            ent->high_y = ent->position.y;
 
             float horizonal_spd_mag = (ent->velocity.x * ent->velocity.x) + (ent->velocity.z * ent->velocity.z);
             if (p->movement.slide_queued && (horizonal_spd_mag > ((p->movement.walk_speed * p->movement.walk_speed)*0.8f))) {
@@ -125,6 +137,8 @@ void physics_step(Level* level, float dt) {
             }
 
             physics_p_air_movement(p, dt);
+
+            ent->high_y = (ent->position.y > ent->high_y) ? ent->position.y : ent->high_y;
         }
 
         physics_funny_bounds_check(ent);
@@ -159,7 +173,7 @@ void physics_step(Level* level, float dt) {
 
         ent->force = (Vec3){0.0f, 0.0f, 0.0f};
 
-        check_dead(ent);
+        //check_dead(ent);
     }
 
     for (int i = 0; i < hmlen(level->ent_map); i++) {
@@ -230,10 +244,99 @@ void physics_step(Level* level, float dt) {
 
         ent->force = (Vec3){0.0f, 0.0f, 0.0f};
 
-        check_dead(ent);
+        //check_dead(ent);
 
     }
 
+}
+
+void physics_step_player(Level* level, Player* p, float dt) {
+    PhysicsWorld* world = &level->physics;
+    Entity* ent = &p->entity;
+
+    ent->prev_position = ent->position;
+    ent->force = (Vec3){0.0f, 0.0f, 0.0f};
+
+    physics_update_states(level, ent);
+
+    if (is_state(ent, GROUNDED)) {
+        ent->high_y = ent->position.y;
+
+        float horizonal_spd_mag = (ent->velocity.x * ent->velocity.x) + (ent->velocity.z * ent->velocity.z);
+        if (p->movement.slide_queued && (horizonal_spd_mag > ((p->movement.walk_speed * p->movement.walk_speed)*0.8f))) {
+            set_state(ent, SLIDING);
+        } else {
+            clear_state(ent, SLIDING);
+        }
+
+        physics_p_ground_movement(p, dt);
+
+        float ground_y = 0.0f;
+        Vec3 ground_normal = {0.0f, 1.0f, 0.0f};
+        physics_get_height_and_slope(level, &ent->position, &ground_y, &ground_normal);
+
+        if (ground_normal.y > EPSILON) {
+            ent->velocity.y = -((ground_normal.x * ent->velocity.x) + (ground_normal.z * ent->velocity.z)) / ground_normal.y;
+        }
+
+        if (p->movement.jump_queued) {
+            p->movement.jump_queued = false;
+            float add_vel = p->movement.jump_vel - ent->velocity.y;
+            if (add_vel > 0.0f) {
+                ent->velocity.y += p->movement.jump_vel;
+            }
+        }
+
+    } else if (is_state(ent, IN_AIR)) {
+        Vec3 steep_normal = {0.0f, 1.0f, 0.0f};
+        bool touching_steep = check_map_touching(level, ent, ent->radius + 0.02f, &steep_normal);
+
+        if (touching_steep) {
+            float g_dot_n = vec3_dot(&world->gravity, &steep_normal);
+            Vec3 g_normal = vec3_multiply(&steep_normal, g_dot_n);
+            Vec3 g_tangent = vec3_subtract(&world->gravity, &g_normal);
+            Vec3 slope_force = vec3_multiply(&g_tangent, (float)ent->mass);
+            vec3_add_inplace(&ent->force, &slope_force);
+
+            Vec3 clipped_vel = ent->velocity;
+            physics_clip_velocity(&ent->velocity, &steep_normal, &clipped_vel, 1.0f);
+            ent->velocity = clipped_vel;
+        } else {
+            Vec3 gravity_force = vec3_multiply(&world->gravity, (float)ent->mass);
+            vec3_add_inplace(&ent->force, &gravity_force);
+        }
+
+        physics_p_air_movement(p, dt);
+
+        ent->high_y = (ent->position.y > ent->high_y) ? ent->position.y : ent->high_y;
+    }
+
+    physics_funny_bounds_check(ent);
+
+    Vec3 delta_vel = vec3_multiply(&ent->force, dt / (float)ent->mass);
+    vec3_add_inplace(&ent->velocity, &delta_vel);
+
+    Vec3 delta_pos = vec3_multiply(&ent->velocity, dt);
+    vec3_add_inplace(&ent->position, &delta_pos);
+
+    float y_level = physics_sample_ground_height(level, &ent->position);
+    float min_y = ent->radius + y_level;
+    if (ent->position.y < min_y) {
+        ent->position.y = min_y;
+
+        Vec3 touch_normal = {0.0f, 1.0f, 0.0f};
+        bool touching_steep2 = check_map_touching(level, ent, ent->radius + 0.02f, &touch_normal);
+        if (!touching_steep2 && ent->velocity.y < 0.0f) {
+            ent->velocity.y = 0.0f;
+        }
+    }
+
+    if (fabsf(ent->velocity.x) < EPSILON) ent->velocity.x = 0.0f;
+    if (fabsf(ent->velocity.y) < EPSILON) ent->velocity.y = 0.0f;
+    if (fabsf(ent->velocity.z) < EPSILON) ent->velocity.z = 0.0f;
+
+    physics_update_states(level, ent);
+    ent->force = (Vec3){0.0f, 0.0f, 0.0f};
 }
 
 void physics_update_states(Level* level, Entity* ent) {
@@ -601,4 +704,62 @@ float exp_decay(float max, float x, float rate) {
 //variation of logistic function where you choose the the place to start the curve
 float logistic_s(float max, float x, float start, float rate) {
     return max / (1 + powf(2.71828182846f, (-rate * (x - (start + 5.0f / rate)))));
+}
+
+
+void handle_dash_client(Client* c, Player* p, float dt) {
+
+    if(!p->movement.dash_queued) {return;}
+    if (p->dash.cast_wait_time > 0.0f) {p->movement.dash_queued = false; return;}
+    if (p->dash.current_charges <= 0) {p->movement.dash_queued = false; return;}
+
+    p->movement.dash_queued = false;
+
+    p->dash.current_charges--;
+    p->dash.cast_wait_time = p->dash.cast_wait;
+
+    sound_play_name(&c->sound, "dash", 0.2f);
+
+    p->entity.position.y += 0.01f;
+    p->movement.jump_queued = true;
+    Vec3 wishdir = p->movement.cam_forward;
+    wishdir = vec3_normalize(&wishdir);
+    Vec3 wishflat = wishdir;
+    wishflat.y = 0.0f;
+
+    float wishspeed = p->dash.dash_vel;
+    float currentspeed = vec3_dot(&p->entity.velocity, &wishdir);
+    float addspeed = (currentspeed < 0.0f) ? (wishspeed - currentspeed) : wishspeed;
+
+
+    Vec3 accel = vec3_multiply(&wishdir, addspeed);
+    vec3_add_inplace(&p->entity.velocity, &accel);
+
+}
+
+
+void handle_dash(Player* p, float dt) {
+
+    if(!p->movement.dash_queued) {return;}
+    if (p->dash.cast_wait_time > 0.0f) {return;}
+    if (p->dash.current_charges <= 0) {return;}
+
+    p->dash.current_charges--;
+    p->dash.cast_wait_time = p->dash.cast_wait;
+
+    p->entity.position.y += 0.01f;
+    p->movement.jump_queued = true;
+    Vec3 wishdir = p->movement.cam_forward;
+    wishdir = vec3_normalize(&wishdir);
+    Vec3 wishflat = wishdir;
+    wishflat.y = 0.0f;
+
+    float wishspeed = p->dash.dash_vel;
+    float currentspeed = vec3_dot(&p->entity.velocity, &wishdir);
+    float addspeed = (currentspeed < 0.0f) ? (wishspeed - currentspeed) : wishspeed;
+
+
+    Vec3 accel = vec3_multiply(&wishdir, addspeed);
+    vec3_add_inplace(&p->entity.velocity, &accel);
+
 }

@@ -26,7 +26,7 @@ void camera_init(Camera* cam); //populate with default values
 void camera_attach(Camera* cam, Vec3* position_ptr, Vec3* offset);
 void camera_deattach(Camera* cam);
 
-void camera_mode_control(Camera* cam, Vec3* offset_1, Vec3* offset_3);
+void camera_mode_control(Camera* cam, Vec3* offset_1, Vec3* offset_3, float dt);
 
 //big math guy
 Mat4 camera_view_matrix(const Camera* cam);

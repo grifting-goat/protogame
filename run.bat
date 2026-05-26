@@ -1,0 +1,1 @@
+.\bin\Release\protogame.exe c 147.185.221.19 27405
