@@ -11,12 +11,29 @@ bool server_enet_startup(Server* server);
 
 bool server_startup(Server* server){
     if (!server) return false;
-    if (!level_create(&server->level, 128)) return false;
+
+    Timing* t = &server->time;
+
+    t->tick = 0;
+    t->tick_rate = 128;
+    t->tick_time = 1.0f / server->time.tick_rate;
+    t->server_time = 0.0f;
+
+    t->accumulator = 0.0f;
+    t->max_accumulator = t->tick_time * MAX_TICK_DELAY;
+
+    t->last_time = SDL_GetPerformanceCounter();
+    t->perf_freq = SDL_GetPerformanceFrequency();
+
+    t->fps_time_accum = 0;
+    t->frame_count = 0;
+
+    if (!level_create(&server->level)) return false;
+
+
     server->level.server = true;
     server->level.server_ref = server;
 
-    if (!sound_init(&server->sound)) return false;
-    sound_sync_loader(&server->sound);
 
     if (!server_enet_startup(server)) return false;
 
@@ -27,58 +44,43 @@ bool server_startup(Server* server){
 bool server_run(Server* server) {
     if (!server) return false;
 
-    static Uint64 send_time_accum = 0;
-
     //timing
-    Uint64 now = SDL_GetPerformanceCounter();
-    Uint64 frame_ticks = now - server->level.last_time;
-    float dt = (float)frame_ticks / (float)server->level.perf_freq;
-    server->level.last_time = now;
-
+    Timing* t = &server->time;
     
-    server->level.fps_time_accum += frame_ticks;
-    server->level.frame_count++;
-        if (server->level.fps_time_accum >= server->level.perf_freq) {
-            double fps = (double)server->level.frame_count * (double)server->level.perf_freq / (double)server->level.fps_time_accum;
-            //printf("%sPasses:%d\r", server_tag, server->level.frame_count);
-            fflush(stdout);
-            server->level.fps_time_accum = 0;
-            server->level.frame_count = 0;
-        }
-    
-    server_enet_poll(server);
-    server->level.server_time += (uint32_t)(dt * 1000.0f);
-    level_update(&server->level, dt);
-    
+    uint64_t now = SDL_GetPerformanceCounter();
+    uint64_t frame_ticks = now - t->last_time;
+    float dt = (float)frame_ticks / (float)t->perf_freq;
+    t->last_time = now;
 
-    send_time_accum += frame_ticks;
-    const Uint64 send_interval = server->level.perf_freq / server->level.tick_rate;
-    while (send_time_accum >= send_interval) {
-
-        for (int i = 0; i < hmlen(server->level.player_map); i++) {
-            Packet_state payload = {
-                PCKT_SERVER_STATE,
-                server->level.player_map[i].key,
-                server->level.player_map[i].value.entity.position,
-                server->level.player_map[i].value.entity.velocity,
-                server->level.player_map[i].value.movement.cam_forward,
-                server->level.player_map[i].value.entity.states,
-                server->level.player_map[i].value.entity.health,
-                server->level.player_map[i].value.eye_offset,
-                server->level.tick,
-                server->level.server_time,
-                server->level.player_map[i].value.dash.current_charges
-            };
-            ENetPacket* packet = enet_packet_create(
-                &payload,
-                sizeof(payload),
-                0
-            );
-            enet_host_broadcast(server->e_server, 1, packet);
-        }
-
-        send_time_accum -= send_interval;
+    // if i want fps stats
+    t->fps_time_accum += frame_ticks;
+    t->frame_count++;
+    if (t->fps_time_accum >= t->perf_freq) {
+        double fps = (double)t->frame_count * (double)t->perf_freq / (double)t->fps_time_accum;
+        //printf("%sPasses:%d\r", server_tag, t->frame_count);
+        //fflush(stdout);
+        t->fps_time_accum = 0;
+        t->frame_count = 0;
     }
+
+    t->server_time += dt;
+
+    //dont accumulate forever if lagging
+    t->accumulator += dt;
+    if (t->accumulator > t->max_accumulator) {t->accumulator = t->max_accumulator;}
+
+    //main tick loop
+    while (t->accumulator >= t->tick_time) {
+
+        level_update(&server->level, dt); // updates the positions // check collisions // advances timers
+
+        t->accumulator -= t->tick_time;
+        t->tick++;
+    }
+    
+        
+    server_enet_poll(server);
+
 
     return true;
 }
@@ -124,7 +126,12 @@ void server_enet_poll(Server* s) {
                     }
 
                     uint32_t assigned_id = (uint32_t)event.peer->incomingPeerID;
-                    Packet_server_id pack = {PCKT_SERVER_ID, assigned_id};
+                    Packet_on_connect pack = {
+                        .pckt_id = PCKT_SERVER_ID, 
+                        .server_id = assigned_id,
+                        .tick = server.
+                    };
+
                     ENetPacket* packet = enet_packet_create(
                         &pack,
                         sizeof(pack),

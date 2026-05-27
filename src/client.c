@@ -519,9 +519,9 @@ void client_input_actions(Client* client) {
         *actions |= (1U << DASH);
 
         if (client->player->dash.current_charges > 0) {
-            sound_play_name(&client->sound, "dash", 0.2f);
+            sound_play_id(&client->sound, SOUND_DASH, 0.2f);
             level_handle_dash(client->player);
-        } else { sound_play_name(&client->sound, "cant", 0.5f); }
+        } else { sound_play_id(&client->sound, SOUND_CANT, 0.5f); }
     }
     
 
@@ -535,14 +535,14 @@ void client_input_actions(Client* client) {
 
     client->player->guns.guns[client->player->gun_idx].seed = gun_seed_gen(client->player->guns.guns[client->player->gun_idx]);
     if (client->player->shoot_queued && client->player->guns.guns[client->player->gun_idx].wait_time > 0.0f) {
-        sound_play_name(&client->sound, "cant", 0.8f);
+        sound_play_id(&client->sound, SOUND_CANT, 0.8f);
     }
 
     if (input_mb_pressed(player_input, SDL_BUTTON_LMASK) && client->player->guns.guns[client->player->gun_idx].wait_time <= 0.0f) {
 
-        if (client->player->gun_idx == 0) {sound_play_name(&client->sound, "blunder", 0.8f);}
-        if (client->player->gun_idx == 1) {sound_play_name(&client->sound, "musket", 0.5f);}
-        if (client->player->gun_idx == 2) {sound_play_name(&client->sound, "mace", 0.6f);}
+        if (client->player->gun_idx == 0) {sound_play_id(&client->sound, SOUND_BLUNDER, 0.8f);}
+        if (client->player->gun_idx == 1) {sound_play_id(&client->sound, SOUND_MUSKET, 0.5f);}
+        if (client->player->gun_idx == 2) {sound_play_id(&client->sound, SOUND_MACE, 0.6f);}
 
         if (client->player->guns.guns[client->player->gun_idx].tracers) {
             uint8_t rays = 1;
@@ -688,7 +688,7 @@ void client_enet_poll(Client* client) {
                         printf("Assigned server id: %u\n", (unsigned)client->server_id);
 
                         level_add_player(&client->level, client->unique_id, client->server_id);
-                        sound_play_name(&client->sound, "join", 0.8f);
+                        sound_play_id(&client->sound, SOUND_JOIN, 0.8f);
                         int p = hmgeti(client->level.player_map, client->server_id);
                         if (p != -1) {
                             client->player = &client->level.player_map[p].value;
@@ -775,13 +775,13 @@ void client_enet_poll(Client* client) {
                     if (packet_type == PCKT_ADD_PLAYER && event.packet->dataLength >= sizeof(Packet_player)) {
                         const Packet_player* player_pack = (const Packet_player*)event.packet->data;
                         if (hmgeti(client->level.player_map, player_pack->server_id) == -1) {
-                            sound_play_name(&client->sound, "join", 0.8f);
+                            sound_play_id(&client->sound, SOUND_JOIN, 0.8f);
                             level_add_player(&client->level, player_pack->uqid, player_pack->server_id);
                         }
                     }
 
-                    if (packet_type == PCKT_TRACER && event.packet->dataLength >= sizeof(Packet_tracer)) {
-                        const Packet_tracer* player_knock = (const Packet_tracer*)event.packet->data;
+                    if (packet_type == PCKT_TRACER && event.packet->dataLength >= sizeof(Packet_add_tracer)) {
+                        const Packet_add_tracer* player_knock = (const Packet_add_tracer*)event.packet->data;
                         int idx = hmgeti(client->level.player_map, player_knock->server_id);
                         if (idx != -1) {
                             Tracer t = (Tracer){player_knock->source, player_knock->dest, (Vec3){1.0f, 1.0f, 0.0f}, player_knock->time};
@@ -839,7 +839,7 @@ void client_enet_poll(Client* client) {
                                 //(hit_v->damage_amount > 70.0f) ? sound_play_name(&client->sound, "mace_smash", 1.1f) : sound_play_name(&client->sound, "mace_hit", 1.3f);
                             }
 
-                            if (hit_v->kill) {sound_play_name(&client->sound, "kill", 0.3f); client->player->dash.current_charges++;}
+                            if (hit_v->kill) {sound_play_id(&client->sound, SOUND_KILL, 0.3f); client->player->dash.current_charges++;}
                         }
                     }
 
@@ -854,7 +854,7 @@ void client_enet_poll(Client* client) {
                                 float distf = vec3_mag_squared(&dist);
                                 if (distf < range) {
                                     volume = volume - ((distf / range) * volume);
-                                    sound_play(&client->sound, sound->sound_id, (volume > 0.05f) ? volume : 0.05f);
+                                    sound_play_id(&client->sound, (SoundID)sound->sound_id, (volume > 0.05f) ? volume : 0.05f);
                                 }
                             }
                         }

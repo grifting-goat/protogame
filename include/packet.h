@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "engine_math.h"
 #include "gun.h"
+#include "sound.h"
 
 #define PCKT_SERVER_ID 0x00
 #define PCKT_CLIENT_ACK 0x01
@@ -49,62 +50,40 @@ typedef struct {
 typedef enum {
     DASH = 0,
     SHOOT,
-    FORWARD,
-    RIGHT,
-    LEFT,
-    BACKWARD,
-    JUMP
+    JUMP,
+    SLIDE
 
 } actions;
 
 
 typedef struct {
     uint8_t pckt_id;
+
+    uint32_t server_id;
+
+    uint32_t tick;
+    double server_time
+}
+Packet_on_connect;
+
+
+typedef struct {
+    uint8_t pckt_id;
     uint32_t server_id;
 }
-Packet_server_id;
+Packet_add_player;
 
 typedef struct {
     uint8_t pckt_id;
     uint32_t server_id;
-
-    Vec3 pos;
-    Vec3 vel;
-    Vec3 cam_dir;
-
-    uint32_t state;
-
-    float health;
-
-    Vec3 cam_offset;
-
-    int      server_tick;
-    uint32_t server_time;
-
-    int      current_charges;
-
-} Packet_state;
+}
+Packet_remove_player;
 
 
 typedef struct {
     uint8_t pckt_id;
-    uint32_t server_id;
-    uint64_t uqid;
 
-} Packet_client_ack;
-
-
-typedef struct {
-    uint8_t pckt_id;
-    uint32_t server_id;
-    uint64_t uqid;
-
-} Packet_player;
-
-
-typedef struct {
-    uint8_t pckt_id;
-    uint32_t server_id;
+    Vec3 exact_angle;
 
     uint32_t gun_idx;
     uint32_t seed;
@@ -120,15 +99,7 @@ typedef struct {
     Vec3 dest;
     float time;
 
-} Packet_tracer;
-
-typedef struct {
-    uint8_t pckt_id;
-    uint32_t server_id;
-
-    Vec3 vel_knock;
-
-} Packet_server_auth_knockback;
+} Packet_add_tracer;
 
 
 typedef struct {
@@ -139,17 +110,15 @@ typedef struct {
     Vec3 vel;
     float health;
 
-} Packet_server_auth_respawn;
+} Packet_respawn;
 
 typedef struct {
     uint8_t pckt_id;
-    uint32_t server_id;
 
-} Packet_server_auth_dead;
+} Packet_dead;
 
 typedef struct {
     uint8_t pckt_id;
-    uint32_t server_id;
 
     uint32_t hit_server_id;
 
@@ -162,17 +131,46 @@ typedef struct {
 
 typedef struct {
     uint8_t pckt_id;
-    uint32_t server_id;
 
+    uint32_t server_id;
     bool client_side;
 
     Vec3 location;
-    int sound_id;
+    SoundID sound_id;
 
     float volume;
     float range;
 
 } Packet_add_sound;
+
+typedef struct {
+    uint8_t pckt_id;
+
+    Vec3 position;
+    Vec3 velocity;
+
+    float health;
+
+    uint32_t state
+
+} Packet_auth_state;
+
+
+typedef struct {
+    uint8_t pckt_id;
+
+    Vec3 position;
+    Vec3 velocity;
+
+    float health;
+    uint32_t state;
+
+    //other stuff
+
+
+
+} Packet_auth_full_sync;
+
 
 
 typedef struct {

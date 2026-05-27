@@ -23,7 +23,7 @@ void send_to_player(Server* server, uint32_t id, ENetPacket* pack);
 static void level_process_shots(Level* level, float dt);
 static void level_update_timed_entities(Level* level, float dt);
 
-void broadcast_sound(Server* server, uint32_t server_id, bool client_side, int idx, Vec3 pos, float vol, float rang);
+void broadcast_sound(Server* server, uint32_t server_id, bool client_side, SoundID id, Vec3 pos, float vol, float rang);
 
 void check_for_respawn(Level* level);
 void check_for_dead(Level* level);
@@ -35,14 +35,9 @@ bool check_dead(Entity* ent);
 static void level_process_player_buses(Level* level);
 
 
-bool level_create(Level* level, uint32_t tick_rate) {
+bool level_create(Level* level) {
     if (!level) return false;
     
-    level->tick_rate = tick_rate;
-    level->perf_freq = SDL_GetPerformanceFrequency();
-    level->last_time = SDL_GetPerformanceCounter();
-    level->fps_time_accum = 0;
-    level->frame_count = 0;
     level->initialized = true;
 
     level->model_count = 0;
@@ -52,13 +47,6 @@ bool level_create(Level* level, uint32_t tick_rate) {
     level->server = false;
     level->server_ref = NULL;
     level->client_ref = NULL;
-
-    level->tick = 0;
-    level->tick_time = 1.0f / (float)tick_rate;
-    level->server_time = 0;
-
-    level->accumulator = 0.0f;
-    level->max_accumulator = level->tick_time * MAX_TICK_DELAY;
 
     level->event_bus = sys_createBus();
 
@@ -291,16 +279,11 @@ void level_process_shots(Level* level, float dt) {
 
                 //send sound
 
-                int sound_idx = 0;
-                float vol = 0.9f;
-                float rang = 100.0f;
-                if (p->gun_idx == 0) {sound_idx = sound_find(&server->sound, "blunder");}
-                if (p->gun_idx == 1) {sound_idx = sound_find(&server->sound, "musket");}
-                if (p->gun_idx == 2) {sound_idx = sound_find(&server->sound, "mace");}
+                SoundID sound_id = SOUND_BLUNDER;
+                if (p->gun_idx == 1) { sound_id = SOUND_MUSKET; }
+                if (p->gun_idx == 2) { sound_id = SOUND_MACE; }
 
-                if (sound_idx >= 0) {
-                    broadcast_sound(server, p->server_id, true, sound_idx, p->entity.position, vol, rang);
-                }
+                broadcast_sound(server, p->server_id, true, sound_id, p->entity.position, vol, rang);
 
 
                 //tracers
@@ -334,7 +317,7 @@ void level_process_shots(Level* level, float dt) {
                     Vec3 dest = vec3_add(&source, &ray);
 
                     if (gun.tracers) {
-                        Packet_tracer tracer_payload = {
+                        Packet_add_tracer tracer_payload = {
                             PCKT_TRACER,
                             p->server_id,
                             source,
@@ -420,34 +403,30 @@ void level_process_shots(Level* level, float dt) {
                 }
 
                 if (any_hit) {
-                    int s_idx = -1;
+                    SoundID s_id;
                     float s_vol = 0.6f;
                     float s_range = 20.0f;
 
                     if (p->gun_idx == 2) {
-                        s_idx = any_mace_smash ? sound_find(&server->sound, "mace_smash") : sound_find(&server->sound, "mace_hit");
+                        s_id = any_mace_smash ? SOUND_MACE_SMASH : SOUND_MACE_HIT;
                         s_vol = 1.1f;
                         s_range = 100.0f;
                     } else if (any_kill) {
                         s_vol = 0.25f;
                         s_range = 50.0f;
-                        s_idx = (rand() % 4) ? sound_find(&server->sound, "death") : sound_find(&server->sound, "oof");
+                        s_id = (rand() % 4) ? SOUND_DEATH : SOUND_OOF;
                     } else {
-                        float s_vol = 0.7f;
+                        s_vol = 0.7f;
                         s_range = 12.0f;
-                        s_idx = sound_find(&server->sound, "hurt");
+                        s_id = SOUND_HURT;
                     }
 
-                    if (s_idx >= 0) {
-                        broadcast_sound(server, p->server_id, false, s_idx, impact_sound_pos, s_vol, s_range);
-                    }
+                    broadcast_sound(server, p->server_id, false, s_id, impact_sound_pos, s_vol, s_range);
 
                     // For mace kill shots, emit both impact and death vocal sounds.
                     if (p->gun_idx == 2 && any_kill) {
-                        int death_idx = (rand() % 3) ? sound_find(&server->sound, "death") : sound_find(&server->sound, "oof");
-                        if (death_idx >= 0) {
-                            broadcast_sound(server, p->server_id, false, death_idx, impact_sound_pos, 0.3f, 50.0f);
-                        }
+                        SoundID death_id = (rand() % 3) ? SOUND_DEATH : SOUND_OOF;
+                        broadcast_sound(server, p->server_id, false, death_id, impact_sound_pos, 0.3f, 50.0f);
                     }
                 }
 
@@ -542,7 +521,7 @@ void level_process_shot(Level* level, Player* p) {
             Vec3 dest = vec3_add(&source, &ray);
 
             if (gun.tracers) {
-                Packet_tracer tracer_payload = {
+                Packet_add_tracer tracer_payload = {
                     PCKT_TRACER,
                     p->server_id,
                     source,
@@ -628,34 +607,30 @@ void level_process_shot(Level* level, Player* p) {
         }
 
             if (any_hit) {
-                int s_idx = -1;
+                SoundID s_id;
                 float s_vol = 0.6f;
                 float s_range = 20.0f;
 
                 if (p->gun_idx == 2) {
-                    s_idx = any_mace_smash ? sound_find(&server->sound, "mace_smash") : sound_find(&server->sound, "mace_hit");
+                    s_id = any_mace_smash ? SOUND_MACE_SMASH : SOUND_MACE_HIT;
                     s_vol = 1.1f;
                     s_range = 100.0f;
                 } else if (any_kill) {
                     s_vol = 0.25f;
                     s_range = 50.0f;
-                    s_idx = (rand() % 4) ? sound_find(&server->sound, "death") : sound_find(&server->sound, "oof");
+                    s_id = (rand() % 4) ? SOUND_DEATH : SOUND_OOF;
                 } else {
-                    float s_vol = 0.7f;
+                    s_vol = 0.7f;
                     s_range = 12.0f;
-                    s_idx = sound_find(&server->sound, "hurt");
+                    s_id = SOUND_HURT;
                 }
 
-                if (s_idx >= 0) {
-                    broadcast_sound(server, p->server_id, false, s_idx, impact_sound_pos, s_vol, s_range);
-                }
+                broadcast_sound(server, p->server_id, false, s_id, impact_sound_pos, s_vol, s_range);
 
                 // For mace kill shots, emit both impact and death vocal sounds.
                 if (p->gun_idx == 2 && any_kill) {
-                    int death_idx = (rand() % 3) ? sound_find(&server->sound, "death") : sound_find(&server->sound, "oof");
-                    if (death_idx >= 0) {
-                        broadcast_sound(server, p->server_id, false, death_idx, impact_sound_pos, 0.3f, 50.0f);
-                    }
+                    SoundID death_id = (rand() % 3) ? SOUND_DEATH : SOUND_OOF;
+                    broadcast_sound(server, p->server_id, false, death_id, impact_sound_pos, 0.3f, 50.0f);
                 }
             }
 
@@ -768,13 +743,13 @@ void send_to_player(Server* server, uint32_t id, ENetPacket* pack) {
     }
 }
 
-void broadcast_sound(Server* server, uint32_t server_id, bool client_side, int idx, Vec3 pos, float vol, float rang) {
+void broadcast_sound(Server* server, uint32_t server_id, bool client_side, SoundID id, Vec3 pos, float vol, float rang) {
     Packet_add_sound sound_payload = {
         PCKT_ADD_SOUND,
         server_id,
         client_side,
         pos,
-        idx,
+        id,
         vol,
         rang
     };

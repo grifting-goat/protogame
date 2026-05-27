@@ -209,18 +209,18 @@ int sound_sync_loader(SoundSystem* s) {
 		const char* name;
 		const char* path;
 	} sync_sounds[] = {
-		{"death", "wilhelmscream.wav"},
-		{"oof", "death2.wav"},
-		{"blunder", "blunder.wav"},
-		{"musket", "musket.wav"},
-		{"mace", "swordslash.wav"},
-		{"mace_hit", "mace.wav"},
-		{"mace_smash", "mace_smash.wav"},
-		{"hurt", "classic_hurt.wav"},
-		{"dash", "swordlunge.wav"},
-		{"join", "button.wav"},
-		{"cant", "clickfast.wav"},
-		{"kill", "victory.wav"}
+		[SOUND_DEATH]      = {"death",      "wilhelmscream.wav"},
+		[SOUND_OOF]        = {"oof",        "death2.wav"},
+		[SOUND_BLUNDER]    = {"blunder",    "blunder.wav"},
+		[SOUND_MUSKET]     = {"musket",     "musket.wav"},
+		[SOUND_MACE]       = {"mace",       "swordslash.wav"},
+		[SOUND_MACE_HIT]   = {"mace_hit",   "mace.wav"},
+		[SOUND_MACE_SMASH] = {"mace_smash", "mace_smash.wav"},
+		[SOUND_HURT]       = {"hurt",       "classic_hurt.wav"},
+		[SOUND_DASH]       = {"dash",       "swordlunge.wav"},
+		[SOUND_JOIN]       = {"join",       "button.wav"},
+		[SOUND_CANT]       = {"cant",       "clickfast.wav"},
+		[SOUND_KILL]       = {"kill",       "victory.wav"},
 	};
 
 	int loaded_count = 0;
@@ -296,14 +296,7 @@ void sound_play(const SoundSystem* s, int clip_index, float volume) {
 	sys->active_streams[sys->active_stream_count++] = one_shot;
 
 }
-void sound_play_name(const SoundSystem* s, const char* name, float volume){
-	if (!s || !name) {
-		return;
-	}
-
-	int idx = sound_find(s, name);
-	if (idx >= 0) {
-		sound_play(s, idx, volume);
-	}
-
+void sound_play_id(const SoundSystem* s, SoundID id, float volume) {
+	if (id < 0 || id >= SOUND_COUNT) { return; }
+	sound_play(s, (int)id, volume);
 }

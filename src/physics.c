@@ -718,7 +718,7 @@ void handle_dash_client(Client* c, Player* p, float dt) {
     p->dash.current_charges--;
     p->dash.cast_wait_time = p->dash.cast_wait;
 
-    sound_play_name(&c->sound, "dash", 0.2f);
+    sound_play_id(&c->sound, SOUND_DASH, 0.2f);
 
     p->entity.position.y += 0.01f;
     p->movement.jump_queued = true;

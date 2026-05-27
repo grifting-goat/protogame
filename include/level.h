@@ -29,24 +29,10 @@ typedef struct {
     Entity value;
 } EntityMapEntry;
 
-#define MAX_TICK_DELAY 10
+
 
 typedef struct Level {
     bool server;
-
-    int tick;
-    uint32_t tick_rate;
-    float tick_time;
-    uint32_t server_time;
-
-    float accumulator;
-    float max_accumulator;
-
-    Uint64 perf_freq;
-    Uint64 last_time;
-    Uint64 fps_time_accum;
-    int frame_count;
-
     bool initialized;
 
     PlayerMapEntry* player_map;
