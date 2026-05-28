@@ -36,32 +36,26 @@ typedef struct Level {
     bool initialized;
 
     PlayerMapEntry* player_map;
-
     EntityMapEntry* ent_map;
-
-    Model* models;
-    uint32_t model_count;
 
     PhysicsWorld physics;
     Ground ground;
 
-
-    Server* server_ref;
-    Client* client_ref;
-
     Vec3 level_spawn[8];
-
-    sysEventBus event_bus;
 
 } Level;
 
-bool level_create(Level* level, uint32_t tick_rate);
-bool level_update(Level* level, float delta_time);
-bool level_add_model(Level* level, Model* model);
+//shared
+bool level_create(Level* level);
 bool level_add_player(Level* level, uint64_t uqid, uint32_t server_id);
-bool level_add_ent_death(Level* level, uint32_t server_id);
 void level_destroy(Level* level);
 
-void level_proccess_events(Level* level);
+//server side
+
+bool level_server_update(Level* level, Server* server, float delta_time);
+
+//client side
+bool level_client_update(Level* level, Client* client, float delta_time);
+
 
 #endif // LEVEL_H

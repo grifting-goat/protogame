@@ -1,9 +1,12 @@
 #include "server.h"
-#include "stb_ds.h"
-#include "event.h"
 
+//defined here so no one else can call them
 
-const char* server_tag = "Server: ";
+const char* server_log_tag = "Server Log: ";
+const char* server_err_tag = "Server Error: ";
+
+#define SERVER_LOG(fmt, ...) printf("%s" fmt, server_log_tag, ##__VA_ARGS__)
+#define SERVER_ERR(fmt, ...) fprintf(stderr, "%s" fmt, server_err_tag, ##__VA_ARGS__)
 
 
 void server_enet_poll(Server* s);
@@ -30,14 +33,12 @@ bool server_startup(Server* server){
 
     if (!level_create(&server->level)) return false;
 
+    server->port = 7777;
+    if (!server_enet_startup(server, server->port)) return false;
 
-    server->level.server = true;
-    server->level.server_ref = server;
+    server->initialized = true;
 
-
-    if (!server_enet_startup(server)) return false;
-
-    printf("%sserver started...\n", server_tag);
+    SERVER_LOG("Server started successfully!");
     return true;
 }
 
@@ -86,26 +87,26 @@ bool server_run(Server* server) {
 }
 
 
-bool server_enet_startup(Server* server) {
+bool server_enet_startup(Server* server, uint16_t port) {
     if (enet_initialize () != 0) {
-        printf("%sAn error occurred while initializing ENet.\n", server_tag);
+        SERVER_ERR("An error occurred while initializing ENet.\n");
         return false;
     }
 
     ENetAddress address = {0};
     server->address = address;
 
-    address.host = ENET_HOST_ANY; /* Bind the server to the default localhost*/
-    address.port = 7777; /* Bind the server to port 7777. */
+    address.host = ENET_HOST_ANY; // Bind the server to the default localhost
+    address.port = port; // Bind the server to port -> default: 7777.
 
     server->e_server = enet_host_create(&address, MAX_CLIENTS, 2, 0, 0);
 
     if (server->e_server == NULL) {
-        printf("%sAn error occurred while trying to create an ENet server host.\n", server_tag);
+        SERVER_ERR("An error occurred while trying to create an ENet server host.\n");
         return false;
     }
 
-    printf("%sStarted an enet server...\n", server_tag);
+    SERVER_LOG("Started an enet server...\n");
     return true;
 
 }
@@ -120,16 +121,19 @@ void server_enet_poll(Server* s) {
                 {
                     char ip[64] = {0};
                     if (enet_address_get_host_ip(&event.peer->address, ip, sizeof(ip)) == 0) {
-                        printf("%sClient connected: %s:%u\n", server_tag, ip, event.peer->address.port);
+                        SERVER_LOG("Client connected: %s:%u\n", ip, event.peer->address.port);
                     } else {
-                        printf("%sClient connected: <unknown>:%u\n", server_tag, event.peer->address.port);
+                        SERVER_LOG("Client connected: <unknown>:%u\n", event.peer->address.port);
                     }
 
                     uint32_t assigned_id = (uint32_t)event.peer->incomingPeerID;
+
+                    
                     Packet_on_connect pack = {
-                        .pckt_id = PCKT_SERVER_ID, 
+                        .pckt_id = (uint8_t)ON_CONNECT,
                         .server_id = assigned_id,
-                        .tick = server.
+                        .tick = s->time.tick,
+                        .server_time = s->time.server_time
                     };
 
                     ENetPacket* packet = enet_packet_create(
@@ -148,60 +152,71 @@ void server_enet_poll(Server* s) {
                     const uint8_t* data = (const uint8_t*)event.packet->data;
                     const uint8_t packet_type = data[0];
 
-                    if (packet_type == PCKT_CLIENT_ACK && event.packet->dataLength == sizeof(Packet_client_ack)) {
-                        const Packet_client_ack* pos = (const Packet_client_ack*)event.packet->data;
-
-                        for (int i = 0; i < hmlen(s->level.player_map); i++) {
-                            Packet_player existing = {
-                                PCKT_ADD_PLAYER,
-                                s->level.player_map[i].key,
-                                s->level.player_map[i].value.unqid
-                            };
-                            ENetPacket* existing_packet = enet_packet_create(
-                                &existing,
-                                sizeof(existing),
-                                ENET_PACKET_FLAG_RELIABLE
-                            );
-                            if (existing_packet) {
-                                enet_peer_send(event.peer, 0, existing_packet);
-                            }
-                        }
-
-                        level_add_player(&s->level, pos->uqid, pos->server_id);
-
-                        //send to all connected clients
-                        Packet_player payload = {PCKT_ADD_PLAYER, pos->server_id, pos->uqid};
-                        ENetPacket* packet = enet_packet_create(
-                            &payload,
-                            sizeof(payload),
-                            ENET_PACKET_FLAG_RELIABLE
-                        );
-                        if (packet) {
-                            enet_host_broadcast(s->e_server, 0, packet);
-                        }
+                    if (packet_type == (uint8_t)ON_CONNECT) {
+                        // Packet_on_connect handler (server usually sends this type).
                     }
 
-                    if (packet_type == PCKT_CLIENT_STATE && event.packet->dataLength == sizeof(Packet_state)) {
-                        const Packet_state* pos = (const Packet_state*)event.packet->data;
+                    if (packet_type == (uint8_t)ADD_PLAYER) {
+                        // Packet_add_player / Packet_client_ack handler.
+                        /*
+                        Relevant previous implementation:
+                        - parse Packet_client_ack
+                        - send all existing players to new peer
+                        - level_add_player(...)
+                        - broadcast Packet_player(PCKT_ADD_PLAYER)
+                        */
+                    }
+
+                    if (packet_type == (uint8_t)REMOVE_PLAYER) {
+                        // Packet_remove_player handler.
+                    }
+
+                    if (packet_type == (uint8_t)SHOOT_PACKET) {
+                        // Packet_shoot handler.
+                        /*
+                        Relevant previous implementation:
+                        const Packet_shoot* pos = (const Packet_shoot*)event.packet->data;
                         int idx = hmgeti(s->level.player_map, pos->server_id);
-                        /*if (idx != -1) {
-                            s->level.player_map[idx].value.entity.position = pos->pos;
-                            s->level.player_map[idx].value.entity.velocity= pos->vel;
-                            s->level.player_map[idx].value.movement.cam_forward = pos->cam_dir;
-                            Vec3 up = {0.0f, 1.0f, 0.0f};
-                            Vec3 right = vec3_cross(&up, &pos->cam_dir);
-                            if (vec3_mag_squared(&right) > 0.0f) {
-                                vec3_normalize_inplace(&right);
-                            } else {
-                                right = (Vec3){1.0f, 0.0f, 0.0f};
-                            }
-                            s->level.player_map[idx].value.movement.cam_right = right;
-                            //s->level.player_map[idx].value.entity.states = pos->state;
-                            //s->level.player_map[idx].value.eye_offset = pos->cam_offset;
-                        }*/
+                        if (idx != -1) {
+                            s->level.player_map[idx].value.shoot_queued = true;
+                            s->level.player_map[idx].value.gun_idx = pos->gun_idx;
+                            s->level.player_map[idx].value.guns.guns[pos->gun_idx].seed = pos->seed;
+                        }
+                        */
                     }
 
-                    if (packet_type == PCKT_USERCMD && event.packet->dataLength == sizeof(Packet_usercmd)) {
+                    if (packet_type == (uint8_t)ADD_TRACER) {
+                        // Packet_add_tracer handler.
+                    }
+
+                    if (packet_type == (uint8_t)RESPAWN) {
+                        // Packet_respawn handler.
+                    }
+
+                    if (packet_type == (uint8_t)DEAD_PACKET) {
+                        // Packet_dead handler.
+                    }
+
+                    if (packet_type == (uint8_t)HIT_VERIFY) {
+                        // Packet_hit_verify handler.
+                    }
+
+                    if (packet_type == (uint8_t)ADD_SOUND) {
+                        // Packet_add_sound handler.
+                    }
+
+                    if (packet_type == (uint8_t)AUTH_STATE) {
+                        // Packet_auth_state handler.
+                    }
+
+                    if (packet_type == (uint8_t)AUTH_FULL_SYNC) {
+                        // Packet_auth_full_sync handler.
+                    }
+
+                    if (packet_type == (uint8_t)USERCMD_PACKET && event.packet->dataLength == sizeof(Packet_usercmd)) {
+                        // Packet_usercmd handler.
+                        /*
+                        Relevant previous implementation:
                         const Packet_usercmd* ucmd = (const Packet_usercmd*)event.packet->data;
                         uint32_t player_id = (uint32_t)event.peer->incomingPeerID;
                         int idx = hmgeti(s->level.player_map, player_id);
@@ -226,17 +241,7 @@ void server_enet_poll(Server* s) {
                                 sys_queueEvent(&p->event_bus, ucmd->cmd.tick, SE_KEY, SHOOT, 1, 0, NULL);
                             }
                         }
-                    }
-
-                    if (packet_type == PCKT_SHOOT && event.packet->dataLength == sizeof(Packet_shoot)) {
-                        const Packet_shoot* pos = (const Packet_shoot*)event.packet->data;
-                        int idx = hmgeti(s->level.player_map, pos->server_id);
-                        if (idx != -1) {
-                            s->level.player_map[idx].value.shoot_queued = true;
-                            s->level.player_map[idx].value.gun_idx = pos->gun_idx;
-                            s->level.player_map[idx].value.guns.guns[pos->gun_idx].seed = pos->seed;
-                        }   
-
+                        */
                     }
 
                 }
@@ -246,14 +251,15 @@ void server_enet_poll(Server* s) {
             case ENET_EVENT_TYPE_DISCONNECT:
                 {
                     uint32_t disconnected_id = (uint32_t)event.peer->incomingPeerID;
-                    printf("%sClient disconnected (id=%u).\n", server_tag, disconnected_id);
+                    SERVER_LOG("Client disconnected (id=%u).\n", disconnected_id);
 
                     int idx = hmgeti(s->level.player_map, disconnected_id);
                     uint64_t uqid = (idx != -1) ? s->level.player_map[idx].value.unqid : 0;
 
                     hmdel(s->level.player_map, disconnected_id);
 
-                    Packet_player payload = {PCKT_REMOVE_PLAYER, disconnected_id, uqid};
+                    (void)uqid;
+                    Packet_remove_player payload = {(uint8_t)REMOVE_PLAYER, disconnected_id};
                     ENetPacket* packet = enet_packet_create(
                         &payload,
                         sizeof(payload),
@@ -273,12 +279,89 @@ void server_enet_poll(Server* s) {
 
 void server_close(Server* server) {
     if (!server) return;
-    sound_shutdown(&server->sound);
     level_destroy(&server->level);
 
     enet_host_destroy(server->e_server);
     enet_deinitialize();
 
-    printf("\n%sserver closed!\n", server_tag);
+    SERVER_LOG("\nserver closed\n");
 }
 
+
+//only the server can do these
+
+void server_broadcast_sound(Server* server, uint32_t server_id, bool client_side, SoundID id, Vec3 pos, float vol, float rang) {
+
+    //more elagant solution would be -> server only sends to specific clients based on sound handled clientside, distance and states (flashbangs coming soon?)
+    Packet_add_sound sound_payload = {
+        .pckt_id = (packet_t)ADD_SOUND,
+        .client_side = client_side, // was this sound handled clientside?
+        .server_id = server_id,   //used so client can filter -> so wasteful
+        .location = pos,
+        .sound_id = id,
+        .volume = vol,
+        .range = rang
+    };
+
+    ENetPacket* sound_packet = enet_packet_create(
+        &sound_payload,
+        sizeof(sound_payload),
+        ENET_PACKET_FLAG_RELIABLE //ensure audio q's happen even if late
+    );
+    enet_host_broadcast(server->e_server, 1, sound_packet);
+}
+
+
+
+//move to some unified header for client + server
+
+void handle_dash(Player* p) {
+
+    //dash really should be part of an ECS but i dont have that yet
+
+    if (p->dash.cast_wait_time > 0.0f) {p->movement.dash_queued = false; return;}
+    if (p->dash.current_charges <= 0) {p->movement.dash_queued = false; return;}
+
+    p->dash.current_charges--;
+    p->dash.cast_wait_time = p->dash.cast_wait;
+
+    //sound_play_name(&c->sound, "dash", 0.2f);
+
+    p->entity.position.y += 0.01f;
+    p->movement.jump_queued = true;
+    Vec3 wishdir = p->movement.cam_forward;
+    wishdir = vec3_normalize(&wishdir);
+    Vec3 wishflat = wishdir;
+    wishflat.y = 0.0f;
+
+    float wishspeed = p->dash.dash_vel;
+    float currentspeed = vec3_dot(&p->entity.velocity, &wishdir);
+    float addspeed = (currentspeed < 0.0f) ? (wishspeed - currentspeed) : wishspeed;
+
+
+    Vec3 accel = vec3_multiply(&wishdir, addspeed);
+    vec3_add_inplace(&p->entity.velocity, &accel);
+
+}
+
+
+void update_dash(Player_dash* d , const float dt) {
+
+    if (d->cast_wait_time > 0.0f) {
+        d->cast_wait_time -= dt;
+        if (d->cast_wait_time <= 0.0f) {d->cast_wait_time = 0.0f;}
+    }
+
+    if (d->recharge_wait_time > 0.0f && d->current_charges < d->max_charges) {
+        d->recharge_wait_time -= dt;
+        
+    }
+
+    if (d->recharge_wait_time <= 0.0f) {
+        d->current_charges++;
+        d->recharge_wait_time = d->recharge_wait + d->recharge_wait_time;
+    }
+
+    if(d->current_charges > d->max_charges) {d->current_charges = d->max_charges;}
+
+}

@@ -6,24 +6,22 @@
 #include "gun.h"
 #include "sound.h"
 
-#define PCKT_SERVER_ID 0x00
-#define PCKT_CLIENT_ACK 0x01
-#define PCKT_ADD_PLAYER 0x02
-#define PCKT_CLIENT_STATE 0x03
-#define PCKT_SERVER_STATE 0x04
-#define PCKT_REMOVE_PLAYER 0x05
+//fix this with enum
 
-#define PCKT_SHOOT 0x06
-#define PCKT_SERVER_AUTH_KNOCK 0x07
-#define PCKT_TRACER 0x08
-#define PCKT_SERVER_AUTH_RESPAWN 0x09
-#define PCKT_SERVER_AUTH_DEAD 0x0A
-
-
-#define PCKT_HIT_VERIFY 0x10
-
-#define PCKT_ADD_SOUND 0x11
-#define PCKT_USERCMD 0x12
+typedef enum {
+    ON_CONNECT = 0,
+    ADD_PLAYER,
+    REMOVE_PLAYER,
+    SHOOT_PACKET,
+    ADD_TRACER,
+    RESPAWN,
+    DEAD_PACKET,
+    HIT_VERIFY,
+    ADD_SOUND,
+    AUTH_STATE,
+    AUTH_FULL_SYNC,
+    USERCMD_PACKET
+} packet_t;
 
 typedef struct {
 
@@ -34,7 +32,7 @@ typedef struct {
 
     Vec3            wishdir;
 
-} usercmd_t;
+} usercmd_t; //move to elsewhere
 
 typedef struct {
     int tick;
@@ -45,7 +43,7 @@ typedef struct {
     uint32_t state;
     uint32_t gun_idx;
 
-} userstate_t;
+} userstate_t; //move to elsewhere
 
 typedef enum {
     DASH = 0,
@@ -53,25 +51,26 @@ typedef enum {
     JUMP,
     SLIDE
 
-} actions;
+} actions; //move to events
 
 
 typedef struct {
     uint8_t pckt_id;
-
     uint32_t server_id;
 
     uint32_t tick;
     double server_time
 }
-Packet_on_connect;
+Packet_on_connect; //sent from server to client
 
 
 typedef struct {
     uint8_t pckt_id;
     uint32_t server_id;
+
+    uint64_t unique_id
 }
-Packet_add_player;
+Packet_add_player; // client->server and server->client
 
 typedef struct {
     uint8_t pckt_id;

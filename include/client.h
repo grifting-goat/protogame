@@ -12,6 +12,8 @@
 #include "sound.h"
 #include "packet.h"
 
+#include "timing.h"
+
 #define INPUT_BUFFER_SIZE 512
 
 
@@ -31,10 +33,10 @@ typedef struct {
 typedef struct Client {
     Window win;
     Level level;
-    Player* player;
+    Player* player; //pointer to the object in level, makes it easy but dangerous
     SoundSystem sound;
 
-    int tick;
+    Timing time;
     
     Camera player_camera;
     InputHandle player_input;
@@ -48,14 +50,15 @@ typedef struct Client {
 
     bool enet_connect_attempted;
     bool enet_connected;
+    bool established_server_connnection; //happens after id exchange
 
     Tracer tracers[32];
     uint32_t tracer_count;
 
 
-    ModelHashMap* model_cache;
+    ModelHashMap* model_cache; //premature optimisation?
 
-    Model gun_models[3];
+    Model gun_models[3]; //disgusting but works
     Vec3 gun_view_offset;
 
     bool dead;
@@ -73,14 +76,10 @@ typedef struct Client {
 
 } Client;
 
-bool client_startup(Client* client, const char* host, uint32_t port);
+bool client_startup(const Client* client, const char* host, uint32_t port);
 
-void client_render(Client *client, float alpha);
+void client_render(const Client *client, const float alpha);
 
-void client_add_tracer(Client* client, Tracer tracer);
-
-void client_input_actions(Client* client);
-
-void client_close(Client* client);
+void client_close(const Client* client);
 
 #endif // CLIENT_H

@@ -11,29 +11,30 @@
 
 #include "event.h"
 
-
 #include "gun.h"
 
 
 Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera);
+usercmd_t build_usercmd(const Client* c);
+
+void client_add_tracer(Client* client, Tracer tracer);
+
+void client_input_actions(Client* client);
 
 bool client_enet_startup(Client* client);
 bool client_enet_connect(Client* client, const char* host, uint32_t port);
 void client_enet_poll(Client* client);
 
 void update_gun_cooldowns(Client* c, float dt);
-void reload_anim(Client* c, float dt);
+void reload_animation(Client* c, float dt);
 void aiming_animation(Client* client, float dt);
 
 void update_dash(Client* client, float dt);
-void level_handle_dash(Player* p);
-
 
 static bool client_check_dead(const Client* c);
 
 
-bool client_startup(Client *client, const char* host, uint32_t port)
-{
+bool client_startup(Client *client, const char* host, uint32_t port) {
     if (!client || !host)
         return false;
 
@@ -54,8 +55,6 @@ bool client_startup(Client *client, const char* host, uint32_t port)
         return false;
     }
 
-
-
     window_set_icon(&client->win, "icon.bmp");
 
     input_init(&client->player_input, &client->win);
@@ -63,7 +62,6 @@ bool client_startup(Client *client, const char* host, uint32_t port)
     client->aiming = false;
     client->dead = false;
     client->mouse_sensitivity = 0.0007f;
-    client->tick = 0;
     client->actions = 0;
 
     sh_new_strdup(client->model_cache);
@@ -113,6 +111,7 @@ bool client_startup(Client *client, const char* host, uint32_t port)
 
 
     client->player = NULL;
+    client->established_server_connnection = false;
 
     camera_init(&client->player_camera);
     client->player_camera.mode = 1;
@@ -120,7 +119,6 @@ bool client_startup(Client *client, const char* host, uint32_t port)
     srand((unsigned int)time(NULL));
     client->unique_id = ((uint64_t)(uint32_t)rand() << 32) | (uint64_t)(uint32_t)rand();
 
-    client->level.client_ref = client;
 
     if (!client_enet_startup(client))
         return false;
@@ -168,15 +166,17 @@ bool client_startup(Client *client, const char* host, uint32_t port)
 
 bool client_run(Client *client)
 {
-    if (!client)
-        return false;
+    if (!client) {return false;}
+    if (!client->established_server_connnection) {return false;}
+
+    if (client->enet_connected && !client->established_server_connnection) {
+        prinf("waiting for server ack... \n");
+        while (!client->established_server_connnection) {
+            //stall here
+        }
+    }
 
 
-    static Uint64 send_time_accum = 0;
-    static Uint64 fps_ui_ticks_accum = 0;
-    static int fps_ui_frame_count = 0;
-
-    input_update(&client->player_input);
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -184,13 +184,39 @@ bool client_run(Client *client)
             return false;
     }
 
-    Uint64 now = SDL_GetPerformanceCounter();
-    Uint64 frame_ticks = now - client->level.last_time;
-    float dt = (float)frame_ticks / (float)client->level.perf_freq;
-    client->level.last_time = now;
+    //timing
+    Timing* t = &client->time;
+    
+    uint64_t now = SDL_GetPerformanceCounter();
+    uint64_t frame_ticks = now - t->last_time;
+    float dt = (float)frame_ticks / (float)t->perf_freq;
+    t->last_time = now;
 
-    if (client->enet_connected) {
-        client->level.server_time += (uint32_t)(dt * 1000.0f);
+
+    t->fps_time_accum += frame_ticks;
+    t->frame_count++;
+    double fps = NAN;
+    if (t->fps_time_accum >= t->perf_freq) {
+        fps = (double)t->frame_count * (double)t->perf_freq / (double)t->fps_time_accum;
+        //printf("%sPasses:%d\r", server_tag, t->frame_count);
+        //fflush(stdout);
+        t->fps_time_accum = 0;
+        t->frame_count = 0;
+    }
+
+    t->server_time += dt; //needs to sync with server
+
+
+    t->accumulator += dt;
+    if (t->accumulator > t->max_accumulator) {t->accumulator = t->max_accumulator;}
+
+    //main tick loop
+    while (t->accumulator >= t->tick_time) {
+
+        level_update(&client->level, dt); // updates the positions // check collisions // advances timers
+
+        t->accumulator -= t->tick_time;
+        t->tick++;
     }
 
     if (client->player) {
@@ -204,14 +230,6 @@ bool client_run(Client *client)
         client->player_camera.mode = is_state(&client->player->entity, THIRDPERSON) || client->dead ? 0 : 1;
     } else {
         client->dead = false;
-    }
-
-    if (client->hit_overlay_timer > 0.0f) {
-        client->hit_overlay_timer -= dt;
-        if (client->hit_overlay_timer <= 0.0f) {
-            client->hit_overlay_timer = 0.0f;
-            window_toggle_overlay_image(&client->win, "hit", false);
-        }
     }
 
     aiming_animation(client, dt);
@@ -366,12 +384,12 @@ bool client_run(Client *client)
     }
 
     if (client->player) {
-        reload_anim(client, dt);
+        reload_animation(client, dt);
         update_gun_cooldowns(client, dt);
     }
 
     
-    float a = client->level.accumulator / client->level.tick_time;
+    float a = t->accumulator / t->tick_time;
     client_render(client, a);
 
     for (int i = 0; i < hmlen(client->level.player_map); i++) {
@@ -382,6 +400,48 @@ bool client_run(Client *client)
     }
 
     return true;
+}
+
+
+void client_close(Client *client)
+{
+    if (!client)
+        return;
+
+    if (client->server_peer && client->e_client) {
+
+        //try to disconnect nicely
+        enet_peer_disconnect(client->server_peer, 0); //add reasons later?
+
+        ENetEvent event;
+        int attempts = 0;
+        while (attempts < 200 && enet_host_service(client->e_client, &event, 10) > 0) {
+            if (event.type == ENET_EVENT_TYPE_RECEIVE)
+                enet_packet_destroy(event.packet);
+            else if (event.type == ENET_EVENT_TYPE_DISCONNECT)
+                break;
+            attempts++;
+        }
+        enet_peer_reset(client->server_peer); //disconnect meanly
+        client->server_peer = NULL;
+    }
+
+    if (client->e_client) {
+        enet_host_destroy(client->e_client);
+        client->e_client = NULL;
+    }
+
+    enet_deinitialize();
+
+    shfree(client->model_cache);
+    client->model_cache = NULL;
+
+    window_destroy(&client->win);
+    window_quit(); //why would i do this
+
+    level_destroy(&client->level);
+
+    printf("\nClient closed!\n");
 }
 
 
@@ -877,43 +937,6 @@ void client_enet_poll(Client* client) {
 }
 
 
-void client_close(Client *client)
-{
-    if (!client)
-        return;
-
-    if (client->server_peer && client->e_client) {
-        enet_peer_disconnect(client->server_peer, 0);
-        ENetEvent event;
-        int attempts = 0;
-        while (attempts < 200 && enet_host_service(client->e_client, &event, 10) > 0) {
-            if (event.type == ENET_EVENT_TYPE_RECEIVE)
-                enet_packet_destroy(event.packet);
-            else if (event.type == ENET_EVENT_TYPE_DISCONNECT)
-                break;
-            attempts++;
-        }
-        enet_peer_reset(client->server_peer);
-        client->server_peer = NULL;
-    }
-
-    if (client->e_client) {
-        enet_host_destroy(client->e_client);
-        client->e_client = NULL;
-    }
-    enet_deinitialize();
-
-    shfree(client->model_cache);
-    client->model_cache = NULL;
-
-    window_destroy(&client->win);
-    window_quit();
-    level_destroy(&client->level);
-
-    printf("\nClient closed!\n");
-}
-
-
 void weapon_sway(Model* mdl, Player* p, float dt) {
     if (mdl == NULL || p == NULL) {return;}
 
@@ -924,28 +947,13 @@ void weapon_sway(Model* mdl, Player* p, float dt) {
 
 }
 
-void reload_anim(Client* c, float dt) {
-    Player* p = c->player;
-    Gun_stats* gun = &p->guns.guns[p->gun_idx];
-    Vec3 target = {0.0f, 0.0f, 0.0f};
+/*
 
-    if (gun->reload_time > 0.0f) {
-        float ratio = gun->wait_time / gun->reload_time;
-        if (ratio < 0.0f) ratio = 0.0f;
-        if (ratio > 1.0f) ratio = 1.0f;
-        target.y = -ratio;
-    }
+straight to the unified header
 
-    float t = dt * 14.0f;
-    if (t > 1.0f) t = 1.0f;
-    c->gun_view_offset = vec3_lerp(&c->gun_view_offset, &target, t);
+*/
 
-}
-
-
-void update_gun_cooldowns(Client* c, float dt) {
-    Player* p = c->player;
-
+void update_gun_cooldowns(Player* p, const float dt) {
     Gun_stats* gun = &p->guns.guns[p->gun_idx];
     if (gun->wait_time) {
         gun->wait_time -= dt;
@@ -955,7 +963,14 @@ void update_gun_cooldowns(Client* c, float dt) {
     }
 }
 
-void aiming_animation(Client* client, float dt) {
+/*
+
+Half-baked animations
+
+*/
+
+//works for now
+void aiming_animation(Client* client, const float dt) {
     if (!client->player) {return;}
     const float hip_fov = 103.0f;
     const float aim_fov = client->player->guns.guns[client->player->gun_idx].aim_fov;
@@ -976,29 +991,39 @@ void aiming_animation(Client* client, float dt) {
 }
 
 
-void update_dash(Client* client, float dt) {
-    Player* p = client->player;
-    Player_dash* d = &p->dash;
+void reload_animation(Client* c, const float dt) {
+    Player* p = c->player;
+    Gun_stats* gun = &p->guns.guns[p->gun_idx];
+    Vec3 target = {0.0f, 0.0f, 0.0f};
 
-    if (d->cast_wait_time > 0.0f) {
-        d->cast_wait_time -= dt;
-        if (d->cast_wait_time <= 0.0f) {d->cast_wait_time = 0.0f;}
+    if (gun->reload_time > 0.0f) {
+        float ratio = gun->wait_time / gun->reload_time;
+        if (ratio < 0.0f) ratio = 0.0f;
+        if (ratio > 1.0f) ratio = 1.0f;
+        target.y = -ratio;
     }
 
-    if (d->recharge_wait_time > 0.0f && d->current_charges < d->max_charges) {
-        d->recharge_wait_time -= dt;
-        
-    }
-
-    if (d->recharge_wait_time <= 0.0f) {
-        d->current_charges++;
-        d->recharge_wait_time = d->recharge_wait + d->recharge_wait_time;
-    }
-
-    if(d->current_charges > d->max_charges) {d->current_charges = d->max_charges;}
+    float t = dt * 14.0f;
+    if (t > 1.0f) t = 1.0f;
+    c->gun_view_offset = vec3_lerp(&c->gun_view_offset, &target, t);
 
 }
 
+
+void hit_overlay_animation(Client* client, const float dt) {
+    if (client->hit_overlay_timer > 0.0f) {
+        client->hit_overlay_timer -= dt;
+        if (client->hit_overlay_timer <= 0.0f) {
+            client->hit_overlay_timer = 0.0f;
+            window_toggle_overlay_image(&client->win, "hit", false); //currently you have to call 'window_toggle_overlay_image(&client->win, "hit", true);' when you hit
+        }
+    }
+}
+
+
+
+/*
+//Legacy code--> might be good for spec mode?
 Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) {
     Vec3 dir = {0.0f, 0.0f, 0.0f};
     if (player_input->kb_state[SDL_SCANCODE_W]) dir.z += 1.0f;
@@ -1026,10 +1051,21 @@ Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) 
 
     return move_dir;
 }
+    */
 
 
-static bool client_check_dead(const Client* c) {
-    if (!c || !c->player) {return false;}
 
-    return is_state(&c->player->entity, DEAD);
+
+
+usercmd_t build_usercmd(const Client* c) {
+    usercmd_t cmd;
+
+    cmd.tick = c->tick;
+    cmd.angles = camera_forward(&c->player_camera);
+    cmd.buttons = c->actions;
+    cmd.gun_idx = c->player->gun_idx;
+    cmd.wishdir = c->player->movement.wish_dir;
+
+    return cmd;
+
 }

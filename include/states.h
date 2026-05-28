@@ -3,6 +3,8 @@
 
 #include "entity.h"
 
+//this is stupid and needs fixed
+
 #define GROUNDED 1
 #define IN_AIR (1 << 1)
 #define FLYING (1 << 2)

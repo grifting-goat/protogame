@@ -63,54 +63,67 @@ bool level_create(Level* level) {
     return true;
 }
 
-bool level_update(Level* level, float delta_time) {
+bool level_server_update(Level* level, Server* server, float delta_time) {
     if (!level || !level->initialized) return false;
+    if (!server || !server->initialized) return false;
 
     level_proccess_events(level);
-
     level_process_shots(level, delta_time);
     level_update_timed_entities(level, delta_time);
 
-    level->accumulator += delta_time;
-
-    if (level->accumulator > level->max_accumulator) {level->accumulator = level->max_accumulator;}
-
-    while (level->accumulator >= level->tick_time) {
-
-        printf("tick: %d\r", level->tick);
+    physics_step(level, delta_time);
 
 
-        if (level->server) {
-            level_process_player_buses(level);
-            physics_step(level, level->tick_time);
-            check_for_dead(level);
-            check_for_respawn(level);
-            for (int i = 0; i < hmlen(level->player_map); i++) {
-                Player_dash* d = &level->player_map[i].value.dash;
-                if (d->cast_wait_time > 0.0f) {
-                    d->cast_wait_time -= level->tick_time;
-                    if (d->cast_wait_time <= 0.0f) { d->cast_wait_time = 0.0f; }
-                }
-                if (d->recharge_wait_time > 0.0f && d->current_charges < d->max_charges) {
-                    d->recharge_wait_time -= level->tick_time;
-                }
-                if (d->recharge_wait_time <= 0.0f && d->current_charges < d->max_charges) {
-                    d->current_charges++;
-                    d->recharge_wait_time = d->recharge_wait + d->recharge_wait_time;
-                }
-                if (d->current_charges > d->max_charges) { d->current_charges = d->max_charges; }
-            }
-        } else if (level->client_ref != NULL) {
-            level_usercmd(level);
-            physics_step(level, level->tick_time);
+    for (int i = 0; i < hmlen(level->player_map); i++) { //eventually client_t map?
+        Player_dash* d = &level->player_map[i].value.dash;
+        if (d->cast_wait_time > 0.0f) {
+            d->cast_wait_time -= delta_time;
+            if (d->cast_wait_time <= 0.0f) { d->cast_wait_time = 0.0f; }
         }
-        
-        level->accumulator -= level->tick_time;
-        level->tick++;
+        if (d->recharge_wait_time > 0.0f && d->current_charges < d->max_charges) {
+            d->recharge_wait_time -= delta_time;
+        }
+        if (d->recharge_wait_time <= 0.0f && d->current_charges < d->max_charges) {
+            d->current_charges++;
+            d->recharge_wait_time = d->recharge_wait + d->recharge_wait_time;
+        }
+        if (d->current_charges > d->max_charges) { d->current_charges = d->max_charges; }
     }
 
     return true;
 }
+
+bool level_client_update(Level* level, Client* client, float delta_time) {
+    if (!level || !level->initialized) return false;
+    if (!client) return false;
+
+    level_proccess_events(level);
+    level_update_timed_entities(level, delta_time);
+
+    physics_step(level, delta_time);
+ 
+    Player_dash* d = &client->player->dash;
+    if (d->cast_wait_time > 0.0f) {
+        d->cast_wait_time -= delta_time;
+        if (d->cast_wait_time <= 0.0f) { d->cast_wait_time = 0.0f; }
+    }
+    if (d->recharge_wait_time > 0.0f && d->current_charges < d->max_charges) {
+        d->recharge_wait_time -= delta_time;
+    }
+    if (d->recharge_wait_time <= 0.0f && d->current_charges < d->max_charges) {
+        d->current_charges++;
+        d->recharge_wait_time = d->recharge_wait + d->recharge_wait_time;
+    }
+    if (d->current_charges > d->max_charges) { d->current_charges = d->max_charges; }
+
+
+    return true;
+}
+
+
+
+
+
 
 static void level_update_timed_entities(Level* level, float dt) {
     if (!level || dt <= 0.0f) {
@@ -144,21 +157,6 @@ static void level_update_timed_entities(Level* level, float dt) {
 
         ent->life_time -= dt;
         i++;
-    }
-}
-
-static void level_process_player_buses(Level* level) {
-    for (int i = 0; i < hmlen(level->player_map); i++) {
-        Player* p = &level->player_map[i].value;
-        sysEvent_t event;
-        while (true) {
-            event = sys_popEvent(&p->event_bus);
-            if (event.eventType == SE_NONE) break;
-            if (event.eventType == SE_KEY) {
-                key_event(level, event.value, event.value2, p);
-            }
-            if (event.ptr) { free(event.ptr); }
-        }
     }
 }
 
@@ -743,164 +741,9 @@ void send_to_player(Server* server, uint32_t id, ENetPacket* pack) {
     }
 }
 
-void broadcast_sound(Server* server, uint32_t server_id, bool client_side, SoundID id, Vec3 pos, float vol, float rang) {
-    Packet_add_sound sound_payload = {
-        PCKT_ADD_SOUND,
-        server_id,
-        client_side,
-        pos,
-        id,
-        vol,
-        rang
-    };
-
-    ENetPacket* sound_packet = enet_packet_create(
-        &sound_payload,
-        sizeof(sound_payload),
-        0
-    );
-    enet_host_broadcast(server->e_server, 1, sound_packet);
-}
-
-
-void level_proccess_events(Level* level) {
-    sysEventBus* bus = &level->event_bus;
-
-    sysEvent_t	event;
-    while(true) {
-        event = sys_popEvent(bus);
-
-        
-
-        if (event.eventType == SE_NONE) {
-            return;
-        }
-        printf("event: %d ", event.eventType);
-
-        Player* p = NULL;
-        if (level->server_ref != NULL) {
-            int idx = hmgeti(level->player_map, (uint32_t)event.ptrLength);
-            if (idx != -1) p = &level->player_map[idx].value;
-        } else if (level->client_ref != NULL) {
-            p = level->client_ref->player;
-        }
-
-        switch (event.eventType) {
-
-        case SE_NONE:
-            break;
-		case SE_KEY:
-			key_event(level, event.value, event.value2, p);
-			break;
-		case SE_CHAR:
-			break;
-		case SE_MOUSE:
-			break;
-		case SE_CONSOLE:
-
-			break;
-		case SE_PACKET:
-            break;
-        default:
-            printf("bad event\n");
-        }
-
-        if (event.ptr) {
-			free(event.ptr);
-		}
-
-    }
-}
-
-void key_event(Level* level, int key, int pressed, Player* p) {
-
-    if (!p || !pressed) { return; }
-
-    switch ((actions)key) {
-        case DASH:
-            level_handle_dash(p);
-            break;
-        case SHOOT:
-            level_process_shot(level, p);
-            break;
-        case FORWARD:
-            level_proccess_move(p, FORWARD);
-            break;
-        case BACKWARD:
-            level_proccess_move(p, BACKWARD);
-            break;
-        case RIGHT:
-            level_proccess_move(p, RIGHT);
-            break;
-        case LEFT:
-            level_proccess_move(p, LEFT);
-            break;
-        default:
-            break;
-    }
-
-}
-
-
-void level_handle_dash(Player* p) {
-
-    if (p->dash.cast_wait_time > 0.0f) {p->movement.dash_queued = false; return;}
-    if (p->dash.current_charges <= 0) {p->movement.dash_queued = false; return;}
-
-    p->dash.current_charges--;
-    p->dash.cast_wait_time = p->dash.cast_wait;
-
-    //sound_play_name(&c->sound, "dash", 0.2f);
-
-    p->entity.position.y += 0.01f;
-    p->movement.jump_queued = true;
-    Vec3 wishdir = p->movement.cam_forward;
-    wishdir = vec3_normalize(&wishdir);
-    Vec3 wishflat = wishdir;
-    wishflat.y = 0.0f;
-
-    float wishspeed = p->dash.dash_vel;
-    float currentspeed = vec3_dot(&p->entity.velocity, &wishdir);
-    float addspeed = (currentspeed < 0.0f) ? (wishspeed - currentspeed) : wishspeed;
-
-
-    Vec3 accel = vec3_multiply(&wishdir, addspeed);
-    vec3_add_inplace(&p->entity.velocity, &accel);
-
-}
-
-usercmd_t build_usercmd(Client* c) {
-    usercmd_t cmd;
-
-    cmd.tick = c->level.tick;
-    cmd.angles = camera_forward(&c->player_camera);
-    cmd.buttons = c->actions;
-    cmd.gun_idx = c->player->gun_idx;
-    cmd.wishdir = c->player->movement.wish_dir;
-
-    return cmd;
-
-}
 
 
 
-void level_proccess_move(Player* p, actions action) {
 
-    switch (action) {
-        case FORWARD:
-            p->movement.wish_dir.z += 1.0f;
-            break;
-        case BACKWARD:
-            p->movement.wish_dir.z -= 1.0f;
-            break;
-        case RIGHT:
-            p->movement.wish_dir.x -= 1.0f;
-            break;
-        case LEFT:
-            p->movement.wish_dir.x += 1.0f;
-            break;
-        default:
-            break;
-    }
-    
-}
+
+
