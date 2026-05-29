@@ -60,7 +60,7 @@ Player player_create() {
     p.guns.guns[1] = gun_stats_sniper();
     p.guns.guns[2] = gun_stats_mace();
 
-    p.event_bus = sys_createBus();
+    p.event_bus = createBus();
 
     return p;
 }

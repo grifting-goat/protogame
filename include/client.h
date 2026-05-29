@@ -12,7 +12,7 @@
 #include "sound.h"
 #include "packet.h"
 
-#include "timing.h"
+#include "unified.h"
 
 #define INPUT_BUFFER_SIZE 512
 
@@ -74,12 +74,19 @@ typedef struct Client {
     Vec3 stationary_vec;
     Model dead_mdl;
 
+    Event_bus bus;
+
+    Model* models;
+    uint32_t model_count;
+
 } Client;
 
-bool client_startup(const Client* client, const char* host, uint32_t port);
+bool client_startup(Client* client, const char* host, uint32_t port);
 
-void client_render(const Client *client, const float alpha);
+bool client_run(Client *client);
 
-void client_close(const Client* client);
+void client_render(Client *client, const float alpha);
+
+void client_close(Client* client);
 
 #endif // CLIENT_H

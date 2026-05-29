@@ -8,8 +8,7 @@
 #include "packet.h"
 #include "gun.h"
 #include "sound.h"
-#include "timing.h"
-#include "stb_ds.h"
+#include "unified.h"
 #include "event.h"
 
 #define MAX_CLIENTS 32 //arbitrary

@@ -5,7 +5,7 @@
 
 //quake 3
 
-#define	MAX_QUEUED_EVENTS		512
+#define	MAX_QUEUED_EVENTS		1024
 #define	MASK_QUEUED_EVENTS	( MAX_QUEUED_EVENTS - 1 )
 
 typedef enum {
@@ -16,33 +16,33 @@ typedef enum {
 	SE_MOUSE,	// evValue and evValue2 are reletive signed x / y moves
 	SE_CONSOLE,	// evPtr is a char*
 	SE_PACKET	// evPtr is a netadr_t followed by data bytes to evPtrLength
-} sysEventType_t;
+} eventType;
 
 typedef struct {
 	int				time;
-	sysEventType_t	eventType;
+	eventType	eventType;
 	int				value; 
     int             value2;
-	int				ptrLength;	// bytes of data pointed to by evPtr, for journaling
+	int				ptrLength;	// bytes of data pointed to by evPtr
 	void			*ptr;			// this must be manually freed if not NULL
-} sysEvent_t;
+} Event;
 
 
 typedef struct {
 
-    sysEvent_t	queue[MAX_QUEUED_EVENTS];
+    Event queue[MAX_QUEUED_EVENTS];
     int	head;
     int tail;
 
 
-} sysEventBus;
+} Event_bus;
 
 
-sysEventBus sys_createBus(void);
+Event_bus createBus(void);
 
-void sys_queueEvent(sysEventBus* bus, int time, sysEventType_t type, int value, int value2, int ptrLength, void *ptr );
+void queueEvent(Event_bus* bus, int time, eventType type, int value, int value2, int ptrLength, void *ptr );
 
-sysEvent_t sys_popEvent(sysEventBus* bus);
+Event popEvent(Event_bus* bus);
 
 
 

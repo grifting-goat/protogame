@@ -9,16 +9,13 @@
 typedef struct Level Level;
 typedef struct Entity Entity;
 typedef struct Player Player;
+typedef struct Server Server;
+typedef struct Client Client;
 
 #define MAX_TICK_DELAY 10
 
 
 typedef struct {
-
-    //uint32_t tick_rate_physics;
-    //float tick_freq_physics;
-    //float accumulator_physics;
-    //float max_accumulator_physics;
 
     Vec3 gravity;
 
@@ -26,10 +23,12 @@ typedef struct {
 
 void physics_init(Level* level);
 
-//void physics_world_update(Level* level, float dt);
 
 void physics_step(Level* level, float dt);
 void physics_step_player(Level* level, Player* p, float dt);
+
+bool level_server_add_player(Level* level, Server* server, const uint64_t uqid, const uint32_t server_id);
+bool level_client_add_player(Level* level, Client* client, const uint64_t uqid, const uint32_t server_id);
 
 void physics_update_states(Level* level, Entity* ent);
 

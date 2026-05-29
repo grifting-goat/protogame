@@ -1,14 +1,14 @@
 #include "event.h"
 
 
-sysEventBus sys_createBus(void) {
-    return (sysEventBus){.head = 0, .tail = 0};
+Event_bus createBus(void) {
+	return (Event_bus){.head = 0, .tail = 0};
 }
 
 
-void sys_queueEvent(sysEventBus* bus, int time, sysEventType_t type, int value, int value2, int ptrLength, void *ptr ) {
-	sysEvent_t	*event;
-	event = &bus->queue[bus->head & MASK_QUEUED_EVENTS ];
+void queueEvent(Event_bus* bus, int time, eventType type, int value, int value2, int ptrLength, void *ptr ) {
+	Event	*event;
+    event = &bus->queue[bus->head & MASK_QUEUED_EVENTS ];
 	if ( bus->head - bus->tail >= MAX_QUEUED_EVENTS ) {
 		printf("Sys_QueEvent: overflow\n");
 
@@ -29,19 +29,14 @@ void sys_queueEvent(sysEventBus* bus, int time, sysEventType_t type, int value, 
 	event->ptr = ptr;
 }
 
-sysEvent_t sys_popEvent(sysEventBus* bus) {
-    
-    if ( bus->head > bus->tail ) {
+Event popEvent(Event_bus* bus) {
+	if ( bus->head > bus->tail ) {
 		bus->tail++;
 		return bus->queue[ (bus->tail - 1) & MASK_QUEUED_EVENTS];
 	}
 
-    sysEvent_t	ev;
-    memset( &ev, 0, sizeof( ev ) );
+	Event ev;
+	memset( &ev, 0, sizeof( ev ) );
 	ev.time = 0;
-
-    return ev;
-
-
-
+	return ev;
 }

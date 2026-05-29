@@ -14,10 +14,11 @@
 #include "gun.h"
 
 
-Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera);
+
 usercmd_t build_usercmd(const Client* c);
 
 void client_add_tracer(Client* client, Tracer tracer);
+bool client_add_model(Client* c, const Model* model);
 
 void client_input_actions(Client* client);
 
@@ -25,20 +26,24 @@ bool client_enet_startup(Client* client);
 bool client_enet_connect(Client* client, const char* host, uint32_t port);
 void client_enet_poll(Client* client);
 
-void update_gun_cooldowns(Client* c, float dt);
+void update_tracers(Client* client, const float dt);
+
 void reload_animation(Client* c, float dt);
 void aiming_animation(Client* client, float dt);
 
-void update_dash(Client* client, float dt);
 
-static bool client_check_dead(const Client* c);
+void client_shoot_event(Client* client);
+
+//Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera);
+
+
 
 
 bool client_startup(Client *client, const char* host, uint32_t port) {
     if (!client || !host)
         return false;
 
-    if (!level_create(&client->level, 128))
+    if (!level_create(&client->level))
         return false;
 
     if (!window_init())
@@ -75,7 +80,6 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
     Model gun = temp_create_model("blunder.obj", "blunder.png", client->model_cache);
     Model othergun = temp_create_model("othergun.obj", "othergun.bmp", client->model_cache);
 
-    //level_add_model(&client->level, &gun);
 
     client->stationary_vec = (Vec3){0.0f, 0.0f, 0.0f};
 
@@ -103,15 +107,16 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
     tea.scale = (Vec3){2.0f, 2.0f, 2.0f};
 
 
-    level_add_model(&client->level, &ground);
-    level_add_model(&client->level, &skybox);
-    level_add_model(&client->level, &tea);
+    client_add_model(client, &ground);
+    client_add_model(client, &skybox);
+    client_add_model(client, &tea);
 
     client->gun_view_offset = (Vec3){0.0f, 0.0f, 0.0f};
 
 
     client->player = NULL;
     client->established_server_connnection = false;
+    client->input_buffer_idx = 0;
 
     camera_init(&client->player_camera);
     client->player_camera.mode = 1;
@@ -119,12 +124,18 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
     srand((unsigned int)time(NULL));
     client->unique_id = ((uint64_t)(uint32_t)rand() << 32) | (uint64_t)(uint32_t)rand();
 
+    client->bus = createBus();
 
-    if (!client_enet_startup(client))
-        return false;
 
-    if (!client_enet_connect(client, host, port))
+    if (!client_enet_startup(client)) {
         return false;
+    }
+        
+
+    if (!client_enet_connect(client, host, port)) {
+        return false;
+    }   
+        
     
     window_add_overlay(&client->win, "fps", "FPS: 0", 20, 10);
     window_add_overlay(&client->win, "dir", "Dir: 0,0", 20, 50);
@@ -148,13 +159,10 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
     Model terrain = model_generate_map(map);
     terrain.offset = (Vec3) {(float)map->x_size * map->xz_scale / -2.0f, 0.0f, (float)map->z_size * map->xz_scale / -2.0f};
 
-    level_add_model(&client->level, &terrain);
+    client_add_model(client, &terrain);
 
 
-    if (!sound_init(&client->sound)) {
-        return false;
-    }
-
+    if (!sound_init(&client->sound)) {return false;}
     sound_sync_loader(&client->sound);
 
 
@@ -164,8 +172,7 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
     return true;
 }
 
-bool client_run(Client *client)
-{
+bool client_run(Client *client) {
     if (!client) {return false;}
     if (!client->established_server_connnection) {return false;}
 
@@ -175,8 +182,6 @@ bool client_run(Client *client)
             //stall here
         }
     }
-
-
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -192,25 +197,18 @@ bool client_run(Client *client)
     float dt = (float)frame_ticks / (float)t->perf_freq;
     t->last_time = now;
 
-
-    t->fps_time_accum += frame_ticks;
-    t->frame_count++;
-    double fps = NAN;
-    if (t->fps_time_accum >= t->perf_freq) {
-        fps = (double)t->frame_count * (double)t->perf_freq / (double)t->fps_time_accum;
-        //printf("%sPasses:%d\r", server_tag, t->frame_count);
-        //fflush(stdout);
-        t->fps_time_accum = 0;
-        t->frame_count = 0;
-    }
-
     t->server_time += dt; //needs to sync with server
 
 
     t->accumulator += dt;
     if (t->accumulator > t->max_accumulator) {t->accumulator = t->max_accumulator;}
 
-    //main tick loop
+    /*
+    
+    main tick loop
+
+    */
+
     while (t->accumulator >= t->tick_time) {
 
         level_update(&client->level, dt); // updates the positions // check collisions // advances timers
@@ -219,43 +217,25 @@ bool client_run(Client *client)
         t->tick++;
     }
 
-    if (client->player) {
-        client->player_camera.position = &client->player->entity.position;
-        //client->dead = client_check_dead(client);
-        if (client->dead) {
-            //set_state(&client->player->entity, THIRDPERSON);
-            //client->player_camera.position = &client->stationary_vec;
-            client->aiming = false;
-        }
-        client->player_camera.mode = is_state(&client->player->entity, THIRDPERSON) || client->dead ? 0 : 1;
-    } else {
-        client->dead = false;
-    }
+    client->player_camera.position = &client->player->entity.position;
+    client->player_camera.mode = is_state(&client->player->entity, THIRDPERSON) || !client->dead;
 
-    aiming_animation(client, dt);
 
     dMouse delta_mouse = input_mouse(&client->player_input);
-
     client->player_camera.angles.x -= delta_mouse.x * client->mouse_sensitivity;
     client->player_camera.angles.y -= delta_mouse.y * client->mouse_sensitivity;
 
-     client->input_buffer_idx = 0;
 
+    if (client->player_camera.angles.y > 1.5f) {client->player_camera.angles.y = 1.5f;}
+    if (client->player_camera.angles.y < -1.5f) {client->player_camera.angles.y = -1.5f;}
+        
 
-    if (client->player_camera.angles.y > 1.5f)
-        client->player_camera.angles.y = 1.5f;
-    if (client->player_camera.angles.y < -1.5f)
-        client->player_camera.angles.y = -1.5f;
+    t->fps_time_accum += frame_ticks;
+    t->frame_count++;
 
-    client->level.fps_time_accum += frame_ticks;
-    client->level.frame_count++;
-
-    fps_ui_ticks_accum += frame_ticks;
-    fps_ui_frame_count++;
-
-    if (fps_ui_ticks_accum >= (client->level.perf_freq / 6)) {
-        float seconds = (float)fps_ui_ticks_accum / (float)client->level.perf_freq;
-        float fps = seconds > 0.0f ? ((float)fps_ui_frame_count / seconds) : 0.0f;
+    if (t->accumulator >= (t->perf_freq / 6)) {
+        float seconds = dt;
+        float fps = seconds > 0.0f ? ((float)t->frame_count / seconds) : 0.0f;
         float vel = client->player ? vec3_mag(&(Vec3){client->player->entity.velocity.x, 0.0f, client->player->entity.velocity.z}) : 0.0f;
         Vec3 vel3 = client->player ? client->player->entity.velocity : (Vec3){0.0f,0.0f, 0.0f};
         Vec3 dir = client->player ? client->player_camera.angles : (Vec3){0.0f,0.0f, 0.0f};
@@ -283,37 +263,15 @@ bool client_run(Client *client)
             window_toggle_overlay_image(&client->win, "tail2", client->player->dash.current_charges >= 3);
         }
 
-        fps_ui_ticks_accum = 0;
-        fps_ui_frame_count = 0;
+        t->fps_time_accum = 0;
+        t->frame_count = 0;
     }
     
 
 
-    if (client->level.fps_time_accum >= client->level.perf_freq) {
-        client->level.fps_time_accum = 0;
-        client->level.frame_count = 0;
-    }
-
-    send_time_accum += frame_ticks;
-    const Uint64 send_interval = client->level.perf_freq / client->level.tick_rate;
-    while (client->enet_connected && client->player && send_time_accum >= send_interval) {
-        Packet_state payload = {
-            PCKT_CLIENT_STATE,
-            client->server_id,
-            client->player->entity.position,
-            client->player->entity.velocity,
-            camera_forward(&client->player_camera),
-            client->player->entity.states,
-            client->player->entity.health,
-            client->player->eye_offset
-        };
-        ENetPacket* packet = enet_packet_create(
-            &payload,
-            sizeof(payload),
-            0
-        );
-        enet_peer_send(client->server_peer, 1, packet);
-        send_time_accum -= send_interval;
+    if (t->fps_time_accum >= t->perf_freq) {
+        t->fps_time_accum = 0;
+        t->frame_count = 0;
     }
 
     if (client->player) {
@@ -336,8 +294,9 @@ bool client_run(Client *client)
 
     client_enet_poll(client);
 
-    if (!level_update(&client->level, dt))
-        return false;
+
+
+    //move the camera offset around // fix later
 
     if (client->player) {
         if (is_state(&client->player->entity, SLIDING)) {
@@ -350,8 +309,6 @@ bool client_run(Client *client)
             } else {
                 client->player->eye_offset.y += 5.0f * delta * dt;
             }
-            
-
         }
         else if (is_state(&client->player->entity, GLIDING)) {
             //client->player->eye_offset.y = 0.0f;
@@ -368,24 +325,17 @@ bool client_run(Client *client)
         }
     }
 
+
+
     if (client->player) {
         Vec3 third_person_offset = {0.0f, 0.7f, 4.5f};
         camera_mode_control(&client->player_camera, &client->player->eye_offset, &third_person_offset, dt);
     }
 
-    for (uint32_t i = 0; i < client->tracer_count;) {
-        client->tracers[i].lifespan -= dt;
-        if (client->tracers[i].lifespan <= 0.0f) {
-            client->tracers[i] = client->tracers[client->tracer_count - 1];
-            client->tracer_count--;
-        } else {
-            i++;
-        }
-    }
-
+    
     if (client->player) {
         reload_animation(client, dt);
-        update_gun_cooldowns(client, dt);
+        update_gun_cooldowns(client->player, dt);
     }
 
     
@@ -436,6 +386,9 @@ void client_close(Client *client)
     shfree(client->model_cache);
     client->model_cache = NULL;
 
+    free(client->models);
+    client->models = NULL;
+
     window_destroy(&client->win);
     window_quit(); //why would i do this
 
@@ -459,7 +412,7 @@ void client_render(Client *client, float alpha) {
     shader_set_vec3(basic_shader, "lightDir", &light_dir);
 
     Vec3 thing = vec3_lerp(&client->player->entity.prev_position, &client->player->entity.position, alpha);
-    client->player_camera.position = &thing;
+    client->player_camera.position = &thing; // funny hack p1
 
 
     Mat4 view = camera_view_matrix(&client->player_camera);
@@ -479,10 +432,12 @@ void client_render(Client *client, float alpha) {
     };
 
 
-    for (int i = 0; i < client->level.model_count; i++) {
+
+    for (int i = 0; i < client->model_count; i++) {
         Vec3 thing = {0.0f, 0.0f, 0.0f};
-        render_model(&client->level.models[i], thing, basic_shader, temp_color[6]);
+        render_model(&client->models[i], thing, basic_shader, temp_color[6]);
     }
+
 
     for (int i = 0; i < hmlen(client->level.player_map); i++) {
         if (client->level.player_map[i].key != client->server_id) {
@@ -525,7 +480,7 @@ void client_render(Client *client, float alpha) {
         render_model_static(&client->gun_models[client->player->gun_idx], &client->player_camera, client->gun_view_offset, basic_shader, temp_color[6]);
     }
 
-    client->player_camera.position = &client->player->entity.position;
+    client->player_camera.position = &client->player->entity.position; // funny hack p2
 
 
     window_render_overlay(&client->win);
@@ -542,10 +497,10 @@ void client_input_actions(Client* client) {
     Vec3 dir = {0.0f, 0.0f, 0.0f};
     dMouse mb = input_mouse(player_input);
 
-    if (player_input->kb_state[SDL_SCANCODE_W]) {dir.z += 1.0f; *actions |= (1U << FORWARD);}
-    if (player_input->kb_state[SDL_SCANCODE_S]) {dir.z -= 1.0f; *actions |= (1U << BACKWARD);}
-    if (player_input->kb_state[SDL_SCANCODE_A]) {dir.x += 1.0f; *actions |= (1U << LEFT);}
-    if (player_input->kb_state[SDL_SCANCODE_D]) {dir.x -= 1.0f; *actions |= (1U << RIGHT);}
+    if (player_input->kb_state[SDL_SCANCODE_W]) {dir.z += 1.0f;}
+    if (player_input->kb_state[SDL_SCANCODE_S]) {dir.z -= 1.0f;}
+    if (player_input->kb_state[SDL_SCANCODE_A]) {dir.x += 1.0f;}
+    if (player_input->kb_state[SDL_SCANCODE_D]) {dir.x -= 1.0f;}
 
     if(player_input->kb_state[SDL_SCANCODE_SPACE]) {*actions |= (1U << JUMP);}
 
@@ -586,10 +541,9 @@ void client_input_actions(Client* client) {
     
 
     client->aiming = input_mb_held(player_input, SDL_BUTTON_RMASK);
-    //client->player->shoot_queued |= input_mb_pressed(player_input, SDL_BUTTON_LMASK);
 
     if (input_mb_pressed(player_input, SDL_BUTTON_LMASK)) {
-        sys_queueEvent(&client->level.event_bus, client->level.tick, KEY_EVENT, SHOOT, 1, 0, NULL);
+        queueEvent(&client->bus, client->time.tick, KEY_EVENT, SHOOT, 1, 0, NULL);
         *actions |= (1U << SHOOT);
     }
 
@@ -742,183 +696,7 @@ void client_enet_poll(Client* client) {
                     const uint8_t* data = (const uint8_t*)event.packet->data;
                     const uint8_t packet_type = data[0];
 
-                    if (packet_type == PCKT_SERVER_ID && event.packet->dataLength >= (1 + sizeof(uint32_t))) {
-                        const Packet_server_id* id_pack = (const Packet_server_id *)event.packet->data;
-                        client->server_id = id_pack->server_id;
-                        printf("Assigned server id: %u\n", (unsigned)client->server_id);
-
-                        level_add_player(&client->level, client->unique_id, client->server_id);
-                        sound_play_id(&client->sound, SOUND_JOIN, 0.8f);
-                        int p = hmgeti(client->level.player_map, client->server_id);
-                        if (p != -1) {
-                            client->player = &client->level.player_map[p].value;
-                            camera_attach(
-                                &client->player_camera,
-                                &client->player->entity.position,
-                                &client->player->eye_offset);
-                        }
-
-                        Packet_client_ack ack = {
-                            PCKT_CLIENT_ACK,
-                            client->server_id,
-                            client->unique_id
-                        };
-                        ENetPacket* packet = enet_packet_create(
-                            &ack,
-                            sizeof(ack),
-                            ENET_PACKET_FLAG_RELIABLE
-                        );
-                        if (packet) {
-                            enet_peer_send(client->server_peer, 0, packet);
-                        }
-                    }
-
-                    if (packet_type == PCKT_SERVER_STATE && event.packet->dataLength >= sizeof(Packet_state)) {
-                        const Packet_state* pos_pack = (const Packet_state*)event.packet->data;
-                        client->level.server_time = pos_pack->server_time;
-
-                        int idx = hmgeti(client->level.player_map, pos_pack->server_id);
-                        if (idx != -1) {
-
-                            if (pos_pack->server_id == client->server_id) {
-                                Player* p = &client->level.player_map[idx].value;
-                                p->entity.health = pos_pack->health;
-                                p->dash.current_charges = pos_pack->current_charges;
-
-                                // Always accept server-authoritative position/velocity
-                                p->entity.position = pos_pack->pos;
-                                p->entity.velocity = pos_pack->vel;
-
-                                // Replay unacknowledged inputs from input buffer
-                                int unacked = 0;
-                                for (int bi = 1; bi <= (int)client->input_buffer_idx && bi <= INPUT_BUFFER_SIZE; bi++) {
-                                    int buf_idx = (client->input_buffer_idx - bi) % INPUT_BUFFER_SIZE;
-                                    if (client->input_buffer[buf_idx].tick > pos_pack->server_tick) {
-                                        unacked++;
-                                    } else {
-                                        break;
-                                    }
-                                }
-
-                                for (int bi = unacked; bi >= 1; bi--) {
-                                    int buf_idx = (client->input_buffer_idx - bi) % INPUT_BUFFER_SIZE;
-                                    usercmd_t* cmd = &client->input_buffer[buf_idx];
-                                    p->movement.wish_dir = cmd->wishdir;
-                                    vec3_normalize_inplace(&p->movement.wish_dir);
-                                    p->movement.cam_forward = cmd->angles;
-                                    Vec3 up = {0.0f, 1.0f, 0.0f};
-                                    Vec3 right = vec3_cross(&up, &cmd->angles);
-                                    if (vec3_mag_squared(&right) > 0.0f) {
-                                        vec3_normalize_inplace(&right);
-                                    } else {
-                                        right = (Vec3){1.0f, 0.0f, 0.0f};
-                                    }
-                                    p->movement.cam_right = right;
-                                    p->movement.jump_queued = (cmd->buttons & (1U << JUMP)) != 0;
-                                    physics_step_player(&client->level, p, client->level.tick_time);
-                                }
-                            } else {
-                                client->level.player_map[idx].value.entity.position = pos_pack->pos;
-                                client->level.player_map[idx].value.entity.velocity = pos_pack->vel;
-                                client->level.player_map[idx].value.movement.cam_forward = pos_pack->cam_dir;
-                                float yaw = atan2f(-pos_pack->cam_dir.z, pos_pack->cam_dir.x);
-                                client->level.player_map[idx].value.entity.model.rotation = (Vec3){0.0f, yaw, 0.0f};
-                                client->level.player_map[idx].value.entity.states = pos_pack->state;
-
-                                client->level.player_map[idx].value.entity.health = pos_pack->health;
-                                client->level.player_map[idx].value.eye_offset = pos_pack->cam_offset;
-
-                            }
-                        }
-                    }
-
-                    if (packet_type == PCKT_ADD_PLAYER && event.packet->dataLength >= sizeof(Packet_player)) {
-                        const Packet_player* player_pack = (const Packet_player*)event.packet->data;
-                        if (hmgeti(client->level.player_map, player_pack->server_id) == -1) {
-                            sound_play_id(&client->sound, SOUND_JOIN, 0.8f);
-                            level_add_player(&client->level, player_pack->uqid, player_pack->server_id);
-                        }
-                    }
-
-                    if (packet_type == PCKT_TRACER && event.packet->dataLength >= sizeof(Packet_add_tracer)) {
-                        const Packet_add_tracer* player_knock = (const Packet_add_tracer*)event.packet->data;
-                        int idx = hmgeti(client->level.player_map, player_knock->server_id);
-                        if (idx != -1) {
-                            Tracer t = (Tracer){player_knock->source, player_knock->dest, (Vec3){1.0f, 1.0f, 0.0f}, player_knock->time};
-                            client_add_tracer(client, t);
-                        }
-                    }
-
-                    if (packet_type == PCKT_REMOVE_PLAYER && event.packet->dataLength >= sizeof(Packet_player)) {
-                        const Packet_player* player_pack = (const Packet_player*)event.packet->data;
-                        hmdel(client->level.player_map, player_pack->server_id);
-                    }
-
-                    if (packet_type == PCKT_SERVER_AUTH_DEAD && event.packet->dataLength >= sizeof(Packet_server_auth_dead)) {
-                        const Packet_server_auth_dead* dead = (const Packet_server_auth_dead*)event.packet->data;
-                        int idx = hmgeti(client->level.player_map, dead->server_id);
-                        if (idx != -1) {
-                            set_state(&client->level.player_map[idx].value.entity, DEAD);
-                            if (dead->server_id == client->server_id) {
-                                client->dead = true;
-                                client->stationary_vec = client->player->entity.position;
-                                //set_state(&client->level.player_map[idx].value.entity, THIRDPERSON);
-                            }
-                        }
-                    }
-
-                    if (packet_type == PCKT_SERVER_AUTH_RESPAWN && event.packet->dataLength >= sizeof(Packet_server_auth_respawn)) {
-                        const Packet_server_auth_respawn* respawn = (const Packet_server_auth_respawn*)event.packet->data;
-                        int idx = hmgeti(client->level.player_map, respawn->server_id);
-                        if (idx != -1) {
-
-                            //level_add_ent_death(&client->level, respawn->server_id);
-
-                            client->level.player_map[idx].value.entity.position = respawn->pos;
-                            client->level.player_map[idx].value.entity.velocity = respawn->vel;
-                            client->level.player_map[idx].value.entity.health = respawn->health;
-                            clear_state(&client->level.player_map[idx].value.entity, DEAD);
-
-                            if (respawn->server_id == client->server_id) {
-                                client->dead = false;
-                            }
-
-                            client->level.player_map[idx].value.dash.current_charges = client->level.player_map[idx].value.dash.max_charges;
-
-                        }
-                    }
-                    if (packet_type == PCKT_HIT_VERIFY && event.packet->dataLength >= sizeof(Packet_hit_verify)) {
-                        const Packet_hit_verify* hit_v = (const Packet_hit_verify*)event.packet->data;
-                        int idx = hmgeti(client->level.player_map, hit_v->server_id);
-                        if (idx != -1) {
-                            client->hit_overlay_timer = 0.3f;
-                            window_toggle_overlay_image(&client->win, "hit", true);
-
-                            if (hit_v->gun_idx == 2) {
-                                client->player->dash.current_charges++;
-                                //(hit_v->damage_amount > 70.0f) ? sound_play_name(&client->sound, "mace_smash", 1.1f) : sound_play_name(&client->sound, "mace_hit", 1.3f);
-                            }
-
-                            if (hit_v->kill) {sound_play_id(&client->sound, SOUND_KILL, 0.3f); client->player->dash.current_charges++;}
-                        }
-                    }
-
-                    if (packet_type == PCKT_ADD_SOUND && event.packet->dataLength >= sizeof(Packet_add_sound)) {
-                        const Packet_add_sound* sound = (const Packet_add_sound*)event.packet->data;
-                        if (client->player) {
-                            bool ignore_local = sound->client_side && (client->player->server_id == sound->server_id);
-                            if (!ignore_local) {
-                                float range = sound->range * sound->range;
-                                float volume = sound->volume;
-                                Vec3 dist = vec3_subtract(&client->player->entity.position, &sound->location);
-                                float distf = vec3_mag_squared(&dist);
-                                if (distf < range) {
-                                    volume = volume - ((distf / range) * volume);
-                                    sound_play_id(&client->sound, (SoundID)sound->sound_id, (volume > 0.05f) ? volume : 0.05f);
-                                }
-                            }
-                        }
-                        
+                    if (packet_type == (packet_t)ON_CONNECT && event.packet->dataLength >= sizeof(Packet_on_connect)) {
 
                     }
                 }
@@ -947,21 +725,7 @@ void weapon_sway(Model* mdl, Player* p, float dt) {
 
 }
 
-/*
 
-straight to the unified header
-
-*/
-
-void update_gun_cooldowns(Player* p, const float dt) {
-    Gun_stats* gun = &p->guns.guns[p->gun_idx];
-    if (gun->wait_time) {
-        gun->wait_time -= dt;
-        if (gun->wait_time < 0.0f) {
-            gun->wait_time = 0.0f;
-        }
-    }
-}
 
 /*
 
@@ -1054,18 +818,77 @@ Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) 
     */
 
 
+//tracers are purely client sided
 
+void update_tracers(Client* client, const float dt) {
+    for (uint32_t i = 0; i < client->tracer_count;) {
+        client->tracers[i].lifespan -= dt;
+        if (client->tracers[i].lifespan <= 0.0f) {
+            client->tracers[i] = client->tracers[client->tracer_count - 1];
+            client->tracer_count--;
+        } else {
+            i++;
+        }
+    }
+}
+
+
+bool client_add_model(Client* c, const Model* model) {
+    if (!c || !model) {return false;}
+
+    uint32_t new_count = (uint32_t)c->model_count + 1;
+    Model* resized = (Model*)realloc(c->models, new_count * sizeof(*c->models));
+
+    if (!resized) {return false;}
+
+    c->models = resized;
+    c->models[c->model_count] = *model;
+    c->model_count = (uint32_t)new_count;
+    return true;
+}
 
 
 usercmd_t build_usercmd(const Client* c) {
     usercmd_t cmd;
 
-    cmd.tick = c->tick;
+    cmd.tick = c->time.tick;
     cmd.angles = camera_forward(&c->player_camera);
     cmd.buttons = c->actions;
     cmd.gun_idx = c->player->gun_idx;
     cmd.wishdir = c->player->movement.wish_dir;
 
     return cmd;
+
+}
+
+void client_shoot_event(Client* client) {
+    if (!client) {return;}
+
+    Player* p = client->player;
+    Entity* ent = &p->entity;
+
+
+    Gun_stats* gun = &p->guns.guns[p->gun_idx];
+    
+    if (gun->wait_time > 0.0f) {
+        return;
+    }
+
+    gun->wait_time = gun->reload_time;
+    
+    Packet_shoot payload = {
+        (packet_t)SHOOT,
+        p->server_id,
+        p->gun_idx,
+        gun->seed
+    };
+
+    ENetPacket* packet = enet_packet_create(
+        &payload,
+        sizeof(payload),
+        0
+    );
+
+    enet_peer_send(client->server_peer, 1, packet);
 
 }

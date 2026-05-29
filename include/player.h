@@ -71,7 +71,7 @@ typedef struct Player {
 
     bool shoot_queued;
 
-    sysEventBus event_bus;
+    Event_bus event_bus;
 
 } Player;
 

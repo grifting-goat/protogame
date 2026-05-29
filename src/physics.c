@@ -33,7 +33,6 @@ float exp_decay(float max, float x, float rate);
 float logistic_s(float max, float x, float start, float rate);
 
 void handle_dash_client(Client* c, Player* p, float dt);
-void handle_dash(Player* p, float dt);
 
 void physics_funny_bounds_check(Entity* ent);
 
@@ -77,12 +76,6 @@ void physics_step(Level* level, float dt) {
         Entity* ent = &level->player_map[i].value.entity;
 
         ent->prev_position = ent->position;
-
-        if (level->client_ref != NULL && !level->server) {
-            //handle_dash_client(level->client_ref, p, dt);
-        } else {
-            //handle_dash(p, dt);
-        }
 
         physics_update_states(level, ent);
 
@@ -719,33 +712,6 @@ void handle_dash_client(Client* c, Player* p, float dt) {
     p->dash.cast_wait_time = p->dash.cast_wait;
 
     sound_play_id(&c->sound, SOUND_DASH, 0.2f);
-
-    p->entity.position.y += 0.01f;
-    p->movement.jump_queued = true;
-    Vec3 wishdir = p->movement.cam_forward;
-    wishdir = vec3_normalize(&wishdir);
-    Vec3 wishflat = wishdir;
-    wishflat.y = 0.0f;
-
-    float wishspeed = p->dash.dash_vel;
-    float currentspeed = vec3_dot(&p->entity.velocity, &wishdir);
-    float addspeed = (currentspeed < 0.0f) ? (wishspeed - currentspeed) : wishspeed;
-
-
-    Vec3 accel = vec3_multiply(&wishdir, addspeed);
-    vec3_add_inplace(&p->entity.velocity, &accel);
-
-}
-
-
-void handle_dash(Player* p, float dt) {
-
-    if(!p->movement.dash_queued) {return;}
-    if (p->dash.cast_wait_time > 0.0f) {return;}
-    if (p->dash.current_charges <= 0) {return;}
-
-    p->dash.current_charges--;
-    p->dash.cast_wait_time = p->dash.cast_wait;
 
     p->entity.position.y += 0.01f;
     p->movement.jump_queued = true;

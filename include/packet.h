@@ -59,7 +59,7 @@ typedef struct {
     uint32_t server_id;
 
     uint32_t tick;
-    double server_time
+    double server_time;
 }
 Packet_on_connect; //sent from server to client
 
@@ -68,7 +68,7 @@ typedef struct {
     uint8_t pckt_id;
     uint32_t server_id;
 
-    uint64_t unique_id
+    uint64_t unique_id;
 }
 Packet_add_player; // client->server and server->client
 
@@ -150,7 +150,7 @@ typedef struct {
 
     float health;
 
-    uint32_t state
+    uint32_t state;
 
 } Packet_auth_state;
 

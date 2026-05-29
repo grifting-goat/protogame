@@ -3,6 +3,8 @@
 
 #include "event.h"
 
+//each client that connects gets this fun thing
+
 
 typedef struct {
 
@@ -11,7 +13,7 @@ typedef struct {
     //state buffer
     //input buffer
 
-    sysEventBus bus;
+    Event_bus bus;
     
 
 
