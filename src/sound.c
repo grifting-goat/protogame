@@ -209,18 +209,18 @@ int sound_sync_loader(SoundSystem* s) {
 		const char* name;
 		const char* path;
 	} sync_sounds[] = {
-		[SOUND_DEATH]      = {"death",      "wilhelmscream.wav"},
-		[SOUND_OOF]        = {"oof",        "death2.wav"},
-		[SOUND_BLUNDER]    = {"blunder",    "blunder.wav"},
-		[SOUND_MUSKET]     = {"musket",     "musket.wav"},
-		[SOUND_MACE]       = {"mace",       "swordslash.wav"},
-		[SOUND_MACE_HIT]   = {"mace_hit",   "mace.wav"},
-		[SOUND_MACE_SMASH] = {"mace_smash", "mace_smash.wav"},
-		[SOUND_HURT]       = {"hurt",       "classic_hurt.wav"},
-		[SOUND_DASH]       = {"dash",       "swordlunge.wav"},
-		[SOUND_JOIN]       = {"join",       "button.wav"},
-		[SOUND_CANT]       = {"cant",       "clickfast.wav"},
-		[SOUND_KILL]       = {"kill",       "victory.wav"},
+		[SOUND_DEATH]      = {"death",      "resources/wilhelmscream.wav"},
+		[SOUND_OOF]        = {"oof",        "resources/death2.wav"},
+		[SOUND_BLUNDER]    = {"blunder",    "resources/blunder.wav"},
+		[SOUND_MUSKET]     = {"musket",     "resources/musket.wav"},
+		[SOUND_MACE]       = {"mace",       "resources/swordslash.wav"},
+		[SOUND_MACE_HIT]   = {"mace_hit",   "resources/mace.wav"},
+		[SOUND_MACE_SMASH] = {"mace_smash", "resources/mace_smash.wav"},
+		[SOUND_HURT]       = {"hurt",       "resources/classic_hurt.wav"},
+		[SOUND_DASH]       = {"dash",       "resources/swordlunge.wav"},
+		[SOUND_JOIN]       = {"join",       "resources/button.wav"},
+		[SOUND_CANT]       = {"cant",       "resources/clickfast.wav"},
+		[SOUND_KILL]       = {"kill",       "resources/victory.wav"},
 	};
 
 	int loaded_count = 0;

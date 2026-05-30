@@ -4,6 +4,10 @@
 #include <time.h>
 #include <signal.h>
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
 #define ENET_IMPLEMENTATION
 #include "enet.h"
 
@@ -16,14 +20,27 @@
 char* host = "127.0.0.1";
 uint32_t port = 7777;
 
-static volatile int g_running = 1;
+static volatile int running = 1;
+
+HANDLE server_tid = NULL;
+
+static DWORD WINAPI server_thread(LPVOID arg) {
+    Server* server = (Server*)arg;
+    while (running) {
+        if (!server_run(server)) {
+            running = 0;
+            break;
+        }
+    }
+    return 0;
+}
 
 static void handle_sigint(int sig) {
     (void)sig;
-    g_running = 0;
+    running = 0;
 }
 
-int main(int argc, char* argv[]){
+int main(int argc, char* argv[]) {
 
     bool s = true;
     bool c = true;
@@ -56,8 +73,10 @@ int main(int argc, char* argv[]){
     Server server = {0};
     Client client = {0};
 
+
     if (s) {
         server_startup(&server);
+        server_tid = CreateThread(NULL, 0, server_thread, &server, 0, NULL);
     }
 
     if (c) {
@@ -65,15 +84,20 @@ int main(int argc, char* argv[]){
     }
 
 
-    while (g_running) {
+    while (running) {
         if (c) {
-            if (!client_run(&client)) break;
-        }
-
-        if (s) {
-            if (!server_run(&server)) break; 
+            if (!client_run(&client)) {
+                running = 0;  
+                break;
+            }
         }
     }
+
+    if (server_tid) {
+        WaitForSingleObject(server_tid, INFINITE);
+        CloseHandle(server_tid);
+    }
+
 
     if (s) {
         server_close(&server);

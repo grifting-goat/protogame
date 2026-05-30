@@ -12,6 +12,7 @@ const char* server_err_tag = "Server Error: ";
 
 void server_enet_poll(Server* s);
 bool server_enet_startup(Server* server, uint16_t port);
+void server_disconnect_peers(Server* server);
 
 bool server_startup(Server* server){
     if (!server) return false;
@@ -74,7 +75,7 @@ bool server_run(Server* server) {
     //main tick loop
     while (t->accumulator >= t->tick_time) {
 
-        level_update(&server->level, dt); // updates the positions // check collisions // advances timers
+        level_server_update(&server->level, server, dt); // updates the positions // check collisions // advances timers
 
         t->accumulator -= t->tick_time;
         t->tick++;
@@ -249,8 +250,7 @@ void server_enet_poll(Server* s) {
                 enet_packet_destroy(event.packet);
                 break;
 
-            case ENET_EVENT_TYPE_DISCONNECT:
-                {
+            case ENET_EVENT_TYPE_DISCONNECT: {
                     uint32_t disconnected_id = (uint32_t)event.peer->incomingPeerID;
                     SERVER_LOG("Client disconnected (id=%u).\n", disconnected_id);
 
@@ -266,9 +266,8 @@ void server_enet_poll(Server* s) {
                         sizeof(payload),
                         ENET_PACKET_FLAG_RELIABLE
                     );
-                    if (packet) {
-                        enet_host_broadcast(s->e_server, 0, packet);
-                    }
+
+                    if (packet) {enet_host_broadcast(s->e_server, 0, packet);}
                 }
                 break;
 
@@ -282,10 +281,11 @@ void server_close(Server* server) {
     if (!server) return;
     level_destroy(&server->level);
 
+    server_disconnect_peers(server);
     enet_host_destroy(server->e_server);
     enet_deinitialize();
 
-    SERVER_LOG("\nserver closed\n");
+    SERVER_LOG("server closed\n");
 }
 
 
@@ -313,8 +313,33 @@ void server_broadcast_sound(Server* server, uint32_t server_id, bool client_side
 }
 
 
+void server_disconnect_peers(Server* server) {
+    if (!server || !server->e_server) return;
 
-//move to some unified header for client + server
+    // Disconnect all connected peers
+    for (size_t i = 0; i < server->e_server->peerCount; ++i) {
+        ENetPeer* peer = &server->e_server->peers[i];
+        if (peer->state == ENET_PEER_STATE_CONNECTED) {
+            enet_peer_disconnect(peer, 0);
+        }
+    }
+
+
+    uint32_t breakout = 0;
+    ENetEvent event;
+    while (enet_host_service(server->e_server, &event, 1000) > 0 && breakout < server->e_server->peerCount) {
+        switch (event.type) {
+            case ENET_EVENT_TYPE_RECEIVE:
+                enet_packet_destroy(event.packet);
+                break;
+            case ENET_EVENT_TYPE_DISCONNECT:
+                breakout++;
+                break;
+            default:
+                break;
+        }
+    }
+}
 
 
 

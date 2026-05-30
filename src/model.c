@@ -420,7 +420,6 @@ Model model_generate_map(Ground* ground) {
 
     }
 
-
     for (int r = 0; r < r_size; r++) {
         for (int c = 0; c < c_size; c++) {
             int idx = c + (r * c_size);
@@ -498,7 +497,7 @@ Model model_generate_map(Ground* ground) {
             indices[write_idx++] = bot_right;
         }
     }
-    if (!model_create(&mdl, vert, vert_count, indices, index_count, "grass.jpg")) {
+    if (!model_create(&mdl, vert, vert_count, indices, index_count, "resources/grass.jpg")) {
         mdl = model_create_empty();
     }
 

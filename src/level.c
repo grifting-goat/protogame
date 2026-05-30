@@ -47,8 +47,7 @@ bool level_server_update(Level* level, Server* server, float delta_time) {
     if (!level || !level->initialized) return false;
     if (!server || !server->initialized) return false;
 
-    level_proccess_events(level);
-    level_process_shots(level, delta_time);
+
     level_update_timed_entities(level, delta_time);
 
     physics_step(level, delta_time);
@@ -77,7 +76,6 @@ bool level_client_update(Level* level, Client* client, float delta_time) {
     if (!level || !level->initialized) return false;
     if (!client) return false;
 
-    level_proccess_events(level);
     level_update_timed_entities(level, delta_time);
 
     physics_step(level, delta_time);

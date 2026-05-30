@@ -28,7 +28,7 @@ static inline Model temp_create_plane(void)
     model_create(&ground,
                  ground_vertices, 4,
                  ground_indices, 6,
-                 "grass.jpg");
+                 "resources/grass.jpg");
 
     return ground;
 }
@@ -204,7 +204,7 @@ static inline Model temp_create_skybox(void)
     model_create(&cube,
                  cube_vertices, 24,
                  cube_indices, 36,
-                 "sky.png");
+                 "resources/sky.png");
     cube.use_lighting = false;
     return cube;
 }

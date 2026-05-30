@@ -1,10 +1,12 @@
 #ifndef UNIFIED_H
 #define UNIFIED_H
 
+#include <stdint.h>
+#include "gun.h"
+#include "player.h"
 
 typedef struct Level Level;
 typedef struct Entity Entity;
-typedef struct Player Player;
 typedef struct Server Server;
 typedef struct Client Client;
 
@@ -39,7 +41,7 @@ timing operations
 
 */
 
-static void update_gun_cooldowns(Player* p, const float dt) {
+static inline void update_gun_cooldowns(Player* p, const float dt) {
     Gun_stats* gun = &p->guns.guns[p->gun_idx];
     if (gun->wait_time) {
         gun->wait_time -= dt;
@@ -52,7 +54,7 @@ static void update_gun_cooldowns(Player* p, const float dt) {
 
 // this should be replaced with ECS 
 
-static void update_dash(Player_dash* d , const float dt) {
+static inline void update_dash(Player_dash* d , const float dt) {
 
     if (d->cast_wait_time > 0.0f) {
         d->cast_wait_time -= dt;
@@ -73,7 +75,7 @@ static void update_dash(Player_dash* d , const float dt) {
 
 }
 
-void handle_dash(Player* p) {
+static inline void handle_dash(Player* p) {
 
     //dash really should be part of an ECS but i dont have that yet
 

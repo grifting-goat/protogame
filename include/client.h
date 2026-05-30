@@ -48,7 +48,7 @@ typedef struct Client {
     ENetPeer* server_peer;
     ENetAddress address;
 
-    bool enet_connect_attempted;
+    bool enet_connect_attempt_active;
     bool enet_connected;
     bool established_server_connnection; //happens after id exchange
 

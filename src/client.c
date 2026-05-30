@@ -15,28 +15,23 @@
 
 
 
-usercmd_t build_usercmd(const Client* c);
+//evil globals
+bool attempt_reconnect = false;
 
+usercmd_t build_usercmd(const Client* c);
 void client_add_tracer(Client* client, Tracer tracer);
 bool client_add_model(Client* c, const Model* model);
-
 void client_input_actions(Client* client);
-
 bool client_enet_startup(Client* client);
 bool client_enet_connect(Client* client, const char* host, uint32_t port);
+bool client_enet_restart_host(Client* client);
 void client_enet_poll(Client* client);
-
 void update_tracers(Client* client, const float dt);
-
 void reload_animation(Client* c, float dt);
 void aiming_animation(Client* client, float dt);
-
-
 void client_shoot_event(Client* client);
 
 //Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera);
-
-
 
 
 bool client_startup(Client *client, const char* host, uint32_t port) {
@@ -73,12 +68,12 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
 
     Model ground = temp_create_plane();
     Model skybox = temp_create_skybox();
-    Model tea = temp_create_model("teapot.obj", "sand.jpg", client->model_cache);
+    Model tea = temp_create_model("resources/teapot.obj", "resources/sand.jpg", client->model_cache);
 
-    Model hammer = temp_create_model("hammer.obj", "mace.png", client->model_cache);
+    Model hammer = temp_create_model("resources/hammer.obj", "resources/mace.png", client->model_cache);
     //Model bird = temp_create_model("figure.obj", NULL, client->model_cache);
-    Model gun = temp_create_model("blunder.obj", "blunder.png", client->model_cache);
-    Model othergun = temp_create_model("othergun.obj", "othergun.bmp", client->model_cache);
+    Model gun = temp_create_model("resources/blunder.obj", "resources/blunder.png", client->model_cache);
+    Model othergun = temp_create_model("resources/othergun.obj", "resources/othergun.bmp", client->model_cache);
 
 
     client->stationary_vec = (Vec3){0.0f, 0.0f, 0.0f};
@@ -100,7 +95,7 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
     client->gun_models[2].scale = (Vec3){0.3f, 0.3f, 0.3f};
     client->gun_models[2].rotation = (Vec3){0.3f, 2.9f, -0.4f};
 
-    client->dead_mdl = temp_create_model("skull.obj", "skull.jpg", client->model_cache);
+    client->dead_mdl = temp_create_model("resources/skull.obj", "resources/skull.jpg", client->model_cache);
 
     
     tea.offset = (Vec3){5.0f, 0.0f, 0.0f};
@@ -126,12 +121,10 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
 
     client->bus = createBus();
 
-
     if (!client_enet_startup(client)) {
         return false;
     }
         
-
     if (!client_enet_connect(client, host, port)) {
         return false;
     }   
@@ -148,11 +141,12 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
     window_toggle_overlay_image(&client->win, "hit", false);
     client->hit_overlay_timer = 0.0f;
 
-    window_add_overlay_image(&client->win, "tail0", "dash.png", (client->win.width) - 90 - 90, (client->win.height) - 30 - 90);
-    window_add_overlay_image(&client->win, "tail1", "dash.png", (client->win.width) - 180 - 90, (client->win.height) - 30 - 90);
-    window_add_overlay_image(&client->win, "tail2", "dash.png", (client->win.width) - 270 - 90, (client->win.height) - 30 - 90);
+    window_add_overlay_image(&client->win, "tail0", "resources/dash.png", (client->win.width) - 90 - 90, (client->win.height) - 30 - 90);
+    window_add_overlay_image(&client->win, "tail1", "resources/dash.png", (client->win.width) - 180 - 90, (client->win.height) - 30 - 90);
+    window_add_overlay_image(&client->win, "tail2", "resources/dash.png", (client->win.width) - 270 - 90, (client->win.height) - 30 - 90);
 
     client->tracer_count = 0;
+    client->time.perf_freq = SDL_
 
     Ground* map =  &client->level.ground;
 
@@ -174,14 +168,56 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
 
 bool client_run(Client *client) {
     if (!client) {return false;}
-    if (!client->established_server_connnection) {return false;}
 
-    if (client->enet_connected && !client->established_server_connnection) {
-        prinf("waiting for server ack... \n");
-        while (!client->established_server_connnection) {
-            //stall here
+    if (attempt_reconnect) {
+        printf("trying to reconnect\n");
+        client_enet_restart_host(client);
+        client_enet_connect(client, NULL, 0);
+        attempt_reconnect = false;
+        uint64_t reconnecting_time = SDL_GetPerformanceCounter();
+        while ((SDL_GetPerformanceCounter() - reconnecting_time) < (uint64_t)(10.0 * client->time.perf_freq)) {
+            if (client->enet_connected) {break;}
+
+            client_enet_poll(client);
+
+            SDL_Event event;
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_EVENT_QUIT) { return false;}    
+            }
+        }
+
+        if (!client->enet_connected) {
+            reconnecting_time = SDL_GetPerformanceCounter();
+            attempt_reconnect = true;
+            return true;
         }
     }
+
+
+
+    while(!client->enet_connected) {
+        if (attempt_reconnect) return true;
+        client_enet_poll(client);
+
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_EVENT_QUIT)
+                return false;
+        }
+    }
+
+    if (!client->established_server_connnection) {printf("waiting for server ack...");}
+    while(!client->established_server_connnection) {
+        if (attempt_reconnect) return true;
+        client_enet_poll(client);
+
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_EVENT_QUIT)
+                return false;
+        }
+    }
+
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -196,9 +232,7 @@ bool client_run(Client *client) {
     uint64_t frame_ticks = now - t->last_time;
     float dt = (float)frame_ticks / (float)t->perf_freq;
     t->last_time = now;
-
     t->server_time += dt; //needs to sync with server
-
 
     t->accumulator += dt;
     if (t->accumulator > t->max_accumulator) {t->accumulator = t->max_accumulator;}
@@ -211,7 +245,7 @@ bool client_run(Client *client) {
 
     while (t->accumulator >= t->tick_time) {
 
-        level_update(&client->level, dt); // updates the positions // check collisions // advances timers
+        level_client_update(&client->level, client, dt); // updates the positions // check collisions // advances timers
 
         t->accumulator -= t->tick_time;
         t->tick++;
@@ -266,13 +300,14 @@ bool client_run(Client *client) {
         t->fps_time_accum = 0;
         t->frame_count = 0;
     }
-    
 
 
     if (t->fps_time_accum >= t->perf_freq) {
         t->fps_time_accum = 0;
         t->frame_count = 0;
     }
+
+    client_enet_poll(client);
 
     if (client->player) {
         client->player->movement.cam_forward = camera_forward(&client->player_camera);
@@ -290,11 +325,6 @@ bool client_run(Client *client) {
             client_input_actions(client);
         }
     }
-
-
-    client_enet_poll(client);
-
-
 
     //move the camera offset around // fix later
 
@@ -535,7 +565,6 @@ void client_input_actions(Client* client) {
 
         if (client->player->dash.current_charges > 0) {
             sound_play_id(&client->sound, SOUND_DASH, 0.2f);
-            level_handle_dash(client->player);
         } else { sound_play_id(&client->sound, SOUND_CANT, 0.5f); }
     }
     
@@ -641,7 +670,7 @@ bool client_enet_startup(Client* client) {
     
     client->e_client = e_client;
     client->server_peer = NULL;
-    client->enet_connect_attempted = false;
+    client->enet_connect_attempt_active = false;
     client->enet_connected = false;
     client->server_id = 0;
 
@@ -675,9 +704,27 @@ bool client_enet_connect(Client* client, const char* host, uint32_t port) {
         return false;
     }
 
-    client->enet_connect_attempted = true;
+    client->enet_connect_attempt_active = true;
     printf("Connecting to %s:%u...\n", host, (unsigned)enet_port);
 
+    return true;
+}
+
+bool client_enet_restart_host(Client* client) {
+    if (client->e_client) {
+        enet_host_destroy(client->e_client);
+        client->e_client = NULL;
+    }
+
+    client->e_client = enet_host_create(NULL, 1, 2, 0, 0);
+    if (!client->e_client) {
+        fprintf(stderr, "Failed to recreate ENet client host.\n");
+        return false;
+    }
+
+    client->server_peer = NULL;
+    client->enet_connect_attempt_active = false;
+    client->enet_connected = false;
     return true;
 }
 
@@ -689,6 +736,7 @@ void client_enet_poll(Client* client) {
         switch (event.type) {
             case ENET_EVENT_TYPE_CONNECT:
                 client->enet_connected = true;
+                client->enet_connect_attempt_active = false;
                 printf("Client ENet connected.\n");
                 break;
             case ENET_EVENT_TYPE_RECEIVE:
@@ -705,9 +753,21 @@ void client_enet_poll(Client* client) {
                 break;
             case ENET_EVENT_TYPE_DISCONNECT:
                 client->enet_connected = false;
-                client->server_peer = NULL;
+                if (client->server_peer) {
+                    enet_peer_reset(client->server_peer);
+                    client->server_peer = NULL;
+                }
+
+                if (client->e_client) {
+                    enet_host_destroy(client->e_client);
+                    client->e_client = NULL;
+                }
+
+                client->established_server_connnection = false;
+                attempt_reconnect = true;
                 printf("Client ENet disconnected.\n");
-                break;
+                return;
+                
             default:
                 break;
         }
