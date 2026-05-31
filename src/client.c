@@ -14,13 +14,10 @@
 #include "gun.h"
 
 
-
-//evil globals
-bool attempt_reconnect = false;
-
 usercmd_t build_usercmd(const Client* c);
 void client_add_tracer(Client* client, Tracer tracer);
 bool client_add_model(Client* c, const Model* model);
+void client_add_player(Client* client, const uint32_t server_id, const userstate_t* initial);
 void client_input_actions(Client* client);
 bool client_enet_startup(Client* client);
 bool client_enet_connect(Client* client, const char* host, uint32_t port);
@@ -63,6 +60,22 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
     client->dead = false;
     client->mouse_sensitivity = 0.0007f;
     client->actions = 0;
+
+    Timing* t = &client->time;
+
+    t->tick = 0;
+    t->tick_rate = 128;
+    t->tick_time = 1.0f / client->time.tick_rate;
+    t->server_time = 0.0f;
+
+    t->accumulator = 0.0f;
+    t->max_accumulator = t->tick_time * MAX_TICK_DELAY;
+
+    t->last_time = SDL_GetPerformanceCounter();
+    t->perf_freq = SDL_GetPerformanceFrequency();
+
+    t->fps_time_accum = 0;
+    t->frame_count = 0;
 
     sh_new_strdup(client->model_cache);
 
@@ -146,7 +159,7 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
     window_add_overlay_image(&client->win, "tail2", "resources/dash.png", (client->win.width) - 270 - 90, (client->win.height) - 30 - 90);
 
     client->tracer_count = 0;
-    client->time.perf_freq = SDL_
+    client->time.perf_freq = SDL_GetPerformanceFrequency();
 
     Ground* map =  &client->level.ground;
 
@@ -169,34 +182,8 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
 bool client_run(Client *client) {
     if (!client) {return false;}
 
-    if (attempt_reconnect) {
-        printf("trying to reconnect\n");
-        client_enet_restart_host(client);
-        client_enet_connect(client, NULL, 0);
-        attempt_reconnect = false;
-        uint64_t reconnecting_time = SDL_GetPerformanceCounter();
-        while ((SDL_GetPerformanceCounter() - reconnecting_time) < (uint64_t)(10.0 * client->time.perf_freq)) {
-            if (client->enet_connected) {break;}
-
-            client_enet_poll(client);
-
-            SDL_Event event;
-            while (SDL_PollEvent(&event)) {
-                if (event.type == SDL_EVENT_QUIT) { return false;}    
-            }
-        }
-
-        if (!client->enet_connected) {
-            reconnecting_time = SDL_GetPerformanceCounter();
-            attempt_reconnect = true;
-            return true;
-        }
-    }
-
-
-
     while(!client->enet_connected) {
-        if (attempt_reconnect) return true;
+        
         client_enet_poll(client);
 
         SDL_Event event;
@@ -208,7 +195,6 @@ bool client_run(Client *client) {
 
     if (!client->established_server_connnection) {printf("waiting for server ack...");}
     while(!client->established_server_connnection) {
-        if (attempt_reconnect) return true;
         client_enet_poll(client);
 
         SDL_Event event;
@@ -218,12 +204,15 @@ bool client_run(Client *client) {
         }
     }
 
+    input_update(&client->player_input); //call before
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_EVENT_QUIT)
             return false;
     }
+
+    
 
     //timing
     Timing* t = &client->time;
@@ -245,14 +234,20 @@ bool client_run(Client *client) {
 
     while (t->accumulator >= t->tick_time) {
 
-        level_client_update(&client->level, client, dt); // updates the positions // check collisions // advances timers
+
+        level_client_update(&client->level, client, t->tick_time); // updates the positions // check collisions // advances timers
 
         t->accumulator -= t->tick_time;
         t->tick++;
     }
 
-    client->player_camera.position = &client->player->entity.position;
-    client->player_camera.mode = is_state(&client->player->entity, THIRDPERSON) || !client->dead;
+    if (client->player) {
+        client->player_camera.position = &client->player->entity.position;
+        client->player_camera.mode = is_state(&client->player->entity, THIRDPERSON) || !client->dead;
+
+    }
+
+
 
 
     dMouse delta_mouse = input_mouse(&client->player_input);
@@ -267,8 +262,9 @@ bool client_run(Client *client) {
     t->fps_time_accum += frame_ticks;
     t->frame_count++;
 
-    if (t->accumulator >= (t->perf_freq / 6)) {
-        float seconds = dt;
+
+    if (t->fps_time_accum >= (t->perf_freq / 6)) {
+        float seconds = (float)t->fps_time_accum / (float)t->perf_freq;
         float fps = seconds > 0.0f ? ((float)t->frame_count / seconds) : 0.0f;
         float vel = client->player ? vec3_mag(&(Vec3){client->player->entity.velocity.x, 0.0f, client->player->entity.velocity.z}) : 0.0f;
         Vec3 vel3 = client->player ? client->player->entity.velocity : (Vec3){0.0f,0.0f, 0.0f};
@@ -563,9 +559,12 @@ void client_input_actions(Client* client) {
     if (input_key_pressed(player_input, SDL_SCANCODE_R)) {
         *actions |= (1U << DASH);
 
+
         if (client->player->dash.current_charges > 0) {
             sound_play_id(&client->sound, SOUND_DASH, 0.2f);
-        } else { sound_play_id(&client->sound, SOUND_CANT, 0.5f); }
+        } else { 
+            sound_play_id(&client->sound, SOUND_CANT, 0.5f); 
+        }
     }
     
 
@@ -745,8 +744,30 @@ void client_enet_poll(Client* client) {
                     const uint8_t packet_type = data[0];
 
                     if (packet_type == (packet_t)ON_CONNECT && event.packet->dataLength >= sizeof(Packet_on_connect)) {
+                        const Packet_on_connect* pack = (const Packet_on_connect*)event.packet->data;
+                        client->established_server_connnection = true;
 
+                        double rtt = (client->server_peer->roundTripTime * 0.5f) / 1000.0f;
+
+                        client->server_id = pack->server_id;
+                        client->time.server_time = pack->server_time + rtt;
+                        client->time.tick = pack->tick + (uint32_t)(rtt / client->time.tick_time);
+
+                        printf("Tick: %u\nTime: %f\n", client->time.tick, client->time.server_time);
+
+                        client_add_player(client, client->server_id, NULL);
+                        break;
                     }
+
+                    if (packet_type == (packet_t)ADD_PLAYER && event.packet->dataLength >= sizeof(Packet_add_player)) {
+                        const Packet_add_player* pack = (const Packet_add_player*)event.packet->data;
+                        client_add_player(client, client->server_id, NULL);
+                        break;
+                    }
+
+
+
+
                 }
 
                 enet_packet_destroy(event.packet);
@@ -757,14 +778,7 @@ void client_enet_poll(Client* client) {
                     enet_peer_reset(client->server_peer);
                     client->server_peer = NULL;
                 }
-
-                if (client->e_client) {
-                    enet_host_destroy(client->e_client);
-                    client->e_client = NULL;
-                }
-
                 client->established_server_connnection = false;
-                attempt_reconnect = true;
                 printf("Client ENet disconnected.\n");
                 return;
                 
@@ -950,5 +964,28 @@ void client_shoot_event(Client* client) {
     );
 
     enet_peer_send(client->server_peer, 1, packet);
+
+}
+
+void client_add_player(Client* client, const uint32_t server_id, const userstate_t* initial) {
+    if (!client) {return;}
+
+    Player player = player_create();
+
+    //expand this later
+    if (initial) {
+        player.entity.position = initial->position;
+        player.entity.velocity = initial->velocity;
+        player.entity.health = initial->health;
+    }
+
+    player.entity.model = temp_create_model("crower.obj", "sand.jpg", client->model_cache);
+    player.entity.model.offset = (Vec3){0.0f, -1.0f, 0.0f};
+
+
+     if (!level_client_add_player(&client->level, client, &player, server_id)) {
+        printf("add player to level failed!");
+     }
+
 
 }

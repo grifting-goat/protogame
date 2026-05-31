@@ -25,10 +25,8 @@ void physics_init(Level* level);
 
 
 void physics_step(Level* level, float dt);
-void physics_step_player(Level* level, Player* p, float dt);
 
-bool level_server_add_player(Level* level, Server* server, const uint64_t uqid, const uint32_t server_id);
-bool level_client_add_player(Level* level, Client* client, const uint64_t uqid, const uint32_t server_id);
+void physics_step_player(Level* level, Player* p, float dt);
 
 void physics_update_states(Level* level, Entity* ent);
 

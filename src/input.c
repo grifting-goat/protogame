@@ -14,7 +14,6 @@ void input_update(InputHandle *input) {
     memcpy(input->kb_prev, input->kb_state, SDL_SCANCODE_COUNT);
     input->mb_prev = input->mb;
 
-    SDL_PumpEvents(); //might want to just have the client_run loop do this
     input->mb = SDL_GetMouseState(NULL, NULL);
 }
 

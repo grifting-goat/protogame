@@ -5,6 +5,7 @@
 #include "engine_math.h"
 #include "gun.h"
 #include "sound.h"
+#include "unified.h"
 
 //fix this with enum
 
@@ -23,27 +24,6 @@ typedef enum {
     USERCMD_PACKET
 } packet_t;
 
-typedef struct {
-
-	int				tick;
-	Vec3		    angles;
-	uint32_t	    buttons;
-	uint32_t		gun_idx;
-
-    Vec3            wishdir;
-
-} usercmd_t; //move to elsewhere
-
-typedef struct {
-    int tick;
-    Vec3 cam_forward;
-    Vec3 position;
-    Vec3 velocity;
-
-    uint32_t state;
-    uint32_t gun_idx;
-
-} userstate_t; //move to elsewhere
 
 typedef enum {
     DASH = 0,

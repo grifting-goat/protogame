@@ -47,14 +47,18 @@ typedef struct Level {
 
 //shared
 bool level_create(Level* level);
-bool level_add_player(Level* level, uint64_t uqid, uint32_t server_id);
 void level_destroy(Level* level);
 
 //server side
 bool level_server_update(Level* level, Server* server, float delta_time); 
 
+bool level_server_add_player(Level* level, Server* server, const uint64_t uqid, const uint32_t server_id);
+
 //client side
 bool level_client_update(Level* level, Client* client, float delta_time); //dont have to explicitly pass level but it doesnt hurt
+
+bool level_client_add_player(Level* level, Client* client, Player* new_player, const uint32_t server_id);
+
 
 
 #endif // LEVEL_H

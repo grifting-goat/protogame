@@ -35,6 +35,30 @@ typedef struct {
 } Timing;
 
 
+typedef struct {
+
+	int				tick;
+	Vec3		    angles;
+	uint32_t	    buttons;
+	uint32_t		gun_idx;
+
+    Vec3            wishdir;
+
+} usercmd_t; 
+
+typedef struct {
+    int tick;
+    Vec3 cam_forward;
+    Vec3 position;
+    Vec3 velocity;
+    float health;
+
+    uint32_t state;
+    uint32_t gun_idx;
+
+} userstate_t;
+
+
 /* 
 
 timing operations

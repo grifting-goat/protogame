@@ -139,22 +139,24 @@ static void level_update_timed_entities(Level* level, float dt) {
 }
 
 
-bool level_client_add_player(Level* level, Client* client, const uint64_t uqid, const uint32_t server_id) {
-    if (!level || !level->initialized || client) return false;
-
-    Player new_player = player_create();
-    new_player.unqid = uqid;
-    new_player.server_id = server_id;
-
-    new_player.entity.model = temp_create_model("crower.obj", "sand.jpg", client->model_cache);
-    new_player.entity.model.offset = (Vec3){0.0f, -1.0f, 0.0f};
+bool level_client_add_player(Level* level, Client* client, Player* new_player, const uint32_t server_id) {
+    if (!level || !level->initialized || !client || !new_player) return false;
 
 
-    hmput(level->player_map, server_id, new_player);
+    hmput(level->player_map, server_id, *new_player);
 
-    return true;
+    int idx = hmgeti(level->player_map, server_id);
+    if (idx != -1) {
+        client->player = &level->player_map[idx].value;
+        return true;
+    }
+    return false;
+    
 }
 
+
+
+// move this player creation out of there, just pass a created player like client function does
 
 bool level_server_add_player(Level* level, Server* server, const uint64_t uqid, const uint32_t server_id) {
     if (!level || !level->initialized || server) return false;
