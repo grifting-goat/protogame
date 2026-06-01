@@ -11,12 +11,21 @@
 typedef enum {
   // bk001129 - make sure SE_NONE is zero
 	SE_NONE = 0,	// evTime is still valid
+	SE_ACTION,
 	SE_KEY,		// evValue is a key code, evValue2 is the down flag
 	SE_CHAR,	// evValue is an ascii char
 	SE_MOUSE,	// evValue and evValue2 are reletive signed x / y moves
 	SE_CONSOLE,	// evPtr is a char*
 	SE_PACKET	// evPtr is a netadr_t followed by data bytes to evPtrLength
 } eventType;
+
+
+typedef enum {
+    DASH = 0,
+    SHOOT,
+    JUMP,
+
+} actionType; //move to events
 
 typedef struct {
 	int				time;

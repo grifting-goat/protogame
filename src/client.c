@@ -14,6 +14,10 @@
 #include "gun.h"
 
 
+bool freecam = false;
+
+
+
 usercmd_t build_usercmd(const Client* c);
 void client_add_tracer(Client* client, Tracer tracer);
 bool client_add_model(Client* c, const Model* model);
@@ -27,8 +31,12 @@ void update_tracers(Client* client, const float dt);
 void reload_animation(Client* c, float dt);
 void aiming_animation(Client* client, float dt);
 void client_shoot_event(Client* client);
+void client_proccess_events(Client* client);
 
-//Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera);
+void client_send_usercmd(const Client* client, const usercmd_t* usercmd);
+
+void client_freecam(Client* client, const float dt);
+
 
 
 bool client_startup(Client *client, const char* host, uint32_t port) {
@@ -146,9 +154,10 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
     window_add_overlay(&client->win, "fps", "FPS: 0", 20, 10);
     window_add_overlay(&client->win, "dir", "Dir: 0,0", 20, 50);
     window_add_overlay(&client->win, "vel", "Vel: 0", 20, 90);
+    window_add_overlay(&client->win, "ping", "Ping: 0", 20, 130);
     window_add_overlay(&client->win, "hp", "HP: 0", 20, 950);
 
-    window_add_overlay_image(&client->win, "crosshair", "dot.png", (client->win.width/ 2) - 10, (client->win.height / 2) - 10);
+    window_add_overlay_image(&client->win, "crosshair", "resources/dot.png", (client->win.width/ 2) - 10, (client->win.height / 2) - 10);
 
     window_add_overlay_image(&client->win, "hit", "hit.png", (client->win.width/ 2) - 15, (client->win.height / 2) - 15);
     window_toggle_overlay_image(&client->win, "hit", false);
@@ -233,21 +242,24 @@ bool client_run(Client *client) {
     */
 
     while (t->accumulator >= t->tick_time) {
+        usercmd_t cmd = build_usercmd(client);
 
+        client_proccess_events(client);
 
         level_client_update(&client->level, client, t->tick_time); // updates the positions // check collisions // advances timers
+
+        client_send_usercmd(client, &cmd);
+        client->actions = 0;
 
         t->accumulator -= t->tick_time;
         t->tick++;
     }
 
-    if (client->player) {
+    if (client->player && !freecam) {
         client->player_camera.position = &client->player->entity.position;
         client->player_camera.mode = is_state(&client->player->entity, THIRDPERSON) || !client->dead;
 
     }
-
-
 
 
     dMouse delta_mouse = input_mouse(&client->player_input);
@@ -257,16 +269,16 @@ bool client_run(Client *client) {
 
     if (client->player_camera.angles.y > 1.5f) {client->player_camera.angles.y = 1.5f;}
     if (client->player_camera.angles.y < -1.5f) {client->player_camera.angles.y = -1.5f;}
-        
+
 
     t->fps_time_accum += frame_ticks;
     t->frame_count++;
-
 
     if (t->fps_time_accum >= (t->perf_freq / 6)) {
         float seconds = (float)t->fps_time_accum / (float)t->perf_freq;
         float fps = seconds > 0.0f ? ((float)t->frame_count / seconds) : 0.0f;
         float vel = client->player ? vec3_mag(&(Vec3){client->player->entity.velocity.x, 0.0f, client->player->entity.velocity.z}) : 0.0f;
+        uint32_t ping = client->enet_connected ? client->server_peer->roundTripTime : 0;
         Vec3 vel3 = client->player ? client->player->entity.velocity : (Vec3){0.0f,0.0f, 0.0f};
         Vec3 dir = client->player ? client->player_camera.angles : (Vec3){0.0f,0.0f, 0.0f};
         float health = client->player ? client->player->entity.health : 0.0f;
@@ -274,10 +286,12 @@ bool client_run(Client *client) {
         char fps_text[64];
         char vel_text[64];
         char dir_text[64];
+        char ping_text[64];
         char health_text[64];
 
         SDL_snprintf(fps_text, sizeof(fps_text), "FPS: %.0f", fps);
         SDL_snprintf(dir_text, sizeof(dir_text), "Dir: %.2f, %.2f", dir.x, dir.y);
+        SDL_snprintf(ping_text, sizeof(ping_text), "Ping: %u", ping);
         SDL_snprintf(vel_text, sizeof(vel_text), "Vel: %.2f || <%.2f, %.2f, %.2f>", vel, vel3.x, vel3.y, vel3.z);
 
         SDL_snprintf(health_text, sizeof(fps_text), "hp: %.0f", health);
@@ -285,6 +299,7 @@ bool client_run(Client *client) {
         window_update_overlay(&client->win, "fps", fps_text);
         window_update_overlay(&client->win, "dir", dir_text);
         window_update_overlay(&client->win, "vel", vel_text);
+        window_update_overlay(&client->win, "ping", ping_text);
         window_update_overlay(&client->win, "hp", health_text);
 
         if(client->player != NULL) {
@@ -306,18 +321,26 @@ bool client_run(Client *client) {
     client_enet_poll(client);
 
     if (client->player) {
-        client->player->movement.cam_forward = camera_forward(&client->player_camera);
-        client->player->movement.cam_right = camera_right(&client->player_camera);
-        float yaw = atan2f(-client->player->movement.cam_forward.z, client->player->movement.cam_forward.x);
-        client->player->entity.model.rotation.y = yaw;
+
+
+
         if (client->dead) {
+            client->player->cam_forward = camera_forward(&client->player_camera);
+            float yaw = atan2f(-client->player->cam_forward.z, client->player->cam_forward.x);
+            client->player->entity.model.rotation.y = yaw;
             client->player->movement.wish_dir = (Vec3){0.0f, 0.0f, 0.0f};
-            client->player->movement.jump_queued = false;
+            client->player->movement.can_jump = false;
             client->player->movement.slide_queued = false;
             client->player->movement.dash_queued = false;
             client->player->shoot_queued = false;
             client->aiming = false;
+        }
+        else if (freecam) {
+            client_freecam(client, dt);
         } else {
+            client->player->cam_forward = camera_forward(&client->player_camera);
+            float yaw = atan2f(-client->player->cam_forward.z, client->player->cam_forward.x);
+            client->player->entity.model.rotation.y = yaw;
             client_input_actions(client);
         }
     }
@@ -353,7 +376,7 @@ bool client_run(Client *client) {
 
 
 
-    if (client->player) {
+    if (client->player && !freecam) {
         Vec3 third_person_offset = {0.0f, 0.7f, 4.5f};
         camera_mode_control(&client->player_camera, &client->player->eye_offset, &third_person_offset, dt);
     }
@@ -364,7 +387,8 @@ bool client_run(Client *client) {
         update_gun_cooldowns(client->player, dt);
     }
 
-    
+    update_tracers(client, dt);
+
     float a = t->accumulator / t->tick_time;
     client_render(client, a);
 
@@ -437,8 +461,12 @@ void client_render(Client *client, float alpha) {
     Vec3 light_dir = { 0.86f, -0.8f, 0.52f };
     shader_set_vec3(basic_shader, "lightDir", &light_dir);
 
-    Vec3 thing = vec3_lerp(&client->player->entity.prev_position, &client->player->entity.position, alpha);
-    client->player_camera.position = &thing; // funny hack p1
+
+    if (!freecam) {
+        Vec3 thing = vec3_lerp(&client->player->entity.prev_position, &client->player->entity.position, alpha);
+        client->player_camera.position = &thing; // funny hack p1
+    }
+
 
 
     Mat4 view = camera_view_matrix(&client->player_camera);
@@ -471,7 +499,7 @@ void client_render(Client *client, float alpha) {
             Vec3 lerp_pos = vec3_lerp(&pe->prev_position, &pe->position, alpha);
 
             if (is_state(pe, DEAD)) {
-                client->dead_mdl.rotation.y = atan2f(-client->level.player_map[i].value.movement.cam_forward.z, client->level.player_map[i].value.movement.cam_forward.x);
+                client->dead_mdl.rotation.y = atan2f(-client->level.player_map[i].value.cam_forward.z, client->level.player_map[i].value.cam_forward.x);
                 render_model(&client->dead_mdl, lerp_pos, basic_shader, temp_color[6]);
             }
             else {
@@ -481,13 +509,14 @@ void client_render(Client *client, float alpha) {
         }
     }
 
-    if (client->player && client->player_camera.mode == 0) {
+    if (client->player && (client->player_camera.mode == 0 || freecam)) {
         Vec3 lerp_pos = vec3_lerp(&client->player->entity.prev_position, &client->player->entity.position, alpha);
         if (is_state(&client->player->entity, DEAD)) {
-                client->dead_mdl.rotation.y  = atan2f(-client->player->movement.cam_forward.z, client->player->movement.cam_forward.x);
+                client->dead_mdl.rotation.y  = atan2f(-client->player->cam_forward.z, client->player->cam_forward.x);
                 render_model(&client->dead_mdl, lerp_pos, basic_shader, temp_color[6]);
         } else {
-            render_entity_at(&client->player->entity, lerp_pos, basic_shader, temp_color[(client->player->unqid) % 7]);
+           // render_entity_at(&client->player->entity, lerp_pos, basic_shader, temp_color[(client->player->unqid) % 7]);
+           render_entity_at(&client->player->entity, lerp_pos, basic_shader, temp_color[6]);
         }
         
     }
@@ -502,12 +531,13 @@ void client_render(Client *client, float alpha) {
         render_line(client->tracers[i].start, client->tracers[i].end, client->tracers[i].color);
     }
 
-    if (client->player_camera.mode == 1) {
+    if (client->player_camera.mode == 1 && !freecam) {
         render_model_static(&client->gun_models[client->player->gun_idx], &client->player_camera, client->gun_view_offset, basic_shader, temp_color[6]);
     }
 
-    client->player_camera.position = &client->player->entity.position; // funny hack p2
-
+    if (!freecam) {
+        client->player_camera.position = &client->player->entity.position; // funny hack p2
+    }
 
     window_render_overlay(&client->win);
     window_swap_buffers(&client->win);
@@ -528,11 +558,18 @@ void client_input_actions(Client* client) {
     if (player_input->kb_state[SDL_SCANCODE_A]) {dir.x += 1.0f;}
     if (player_input->kb_state[SDL_SCANCODE_D]) {dir.x -= 1.0f;}
 
-    if(player_input->kb_state[SDL_SCANCODE_SPACE]) {*actions |= (1U << JUMP);}
 
     //player_input->kb_state[SDL_SCANCODE_LSHIFT] ? set_state(&client->player->entity, RUNNING) : clear_state(&client->player->entity, RUNNING);
     clear_state(&client->player->entity, RUNNING);
-    client->player->movement.jump_queued = player_input->kb_state[SDL_SCANCODE_SPACE];
+
+     if (player_input->kb_state[SDL_SCANCODE_SPACE]) {
+        
+        if (!(*actions & (1U << JUMP))) {
+            queueEvent(&client->bus, client->time.tick, (eventType)SE_ACTION, (actionType)JUMP, 0, 0, NULL);
+            *actions |= (1U << JUMP);
+        }
+
+     }
 
     client->player->movement.slide_queued = player_input->kb_state[SDL_SCANCODE_LCTRL];
 
@@ -554,17 +591,26 @@ void client_input_actions(Client* client) {
         clear_state(&client->player->entity, THIRDPERSON) : set_state(&client->player->entity, THIRDPERSON);
     }
 
+    if (input_key_pressed(player_input, SDL_SCANCODE_Y)) {
+        freecam = true;
+    }
+
     //client->player->movement.dash_queued |= input_key_pressed(player_input, SDL_SCANCODE_R);
 
     if (input_key_pressed(player_input, SDL_SCANCODE_R)) {
-        *actions |= (1U << DASH);
+        
+        if (!(*actions & (1U << DASH))) {
 
+            if (client->player->dash.current_charges > 0) { //evil nest
+                queueEvent(&client->bus, client->time.tick, (eventType)SE_ACTION, (actionType)DASH, 0, 0, NULL);
+                sound_play_id(&client->sound, SOUND_DASH, 0.2f);
+            } else { 
+                sound_play_id(&client->sound, SOUND_CANT, 0.5f); 
+            }
 
-        if (client->player->dash.current_charges > 0) {
-            sound_play_id(&client->sound, SOUND_DASH, 0.2f);
-        } else { 
-            sound_play_id(&client->sound, SOUND_CANT, 0.5f); 
         }
+
+        *actions |= (1U << DASH);
     }
     
 
@@ -860,9 +906,13 @@ void hit_overlay_animation(Client* client, const float dt) {
 
 
 
-/*
-//Legacy code--> might be good for spec mode?
-Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) {
+
+void client_freecam(Client* client, const float dt) {
+    InputHandle *player_input = &client->player_input;
+    Camera* player_camera = &client->player_camera;
+
+    camera_deattach(player_camera);
+
     Vec3 dir = {0.0f, 0.0f, 0.0f};
     if (player_input->kb_state[SDL_SCANCODE_W]) dir.z += 1.0f;
     if (player_input->kb_state[SDL_SCANCODE_S]) dir.z -= 1.0f;
@@ -871,6 +921,10 @@ Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) 
     
     if (player_input->kb_state[SDL_SCANCODE_SPACE]) dir.y += 1.0f;
     if (player_input->kb_state[SDL_SCANCODE_LCTRL]) dir.y -= 1.0f;
+
+    if (input_key_pressed(player_input, SDL_SCANCODE_Y)) {
+        freecam = false;
+    }
 
     Vec3 forward = camera_forward(player_camera);
     Vec3 right = camera_right(player_camera);
@@ -885,11 +939,12 @@ Vec3 client_input_basic(InputHandle *player_input, const Camera* player_camera) 
         forward.z * dir.z + right.z * dir.x
     };
 
-    move_dir = vec3_normalize(&move_dir);
+    move_dir = vec3_normalize(&move_dir);           
 
-    return move_dir;
+    vec3_multiply_inplace(&move_dir, 10.0f * dt );
+    vec3_add_inplace(&player_camera->static_position, &move_dir);
+
 }
-    */
 
 
 //tracers are purely client sided
@@ -979,13 +1034,73 @@ void client_add_player(Client* client, const uint32_t server_id, const userstate
         player.entity.health = initial->health;
     }
 
-    player.entity.model = temp_create_model("crower.obj", "sand.jpg", client->model_cache);
+    player.entity.model = temp_create_model("resources/bones.obj", NULL /*"resources/red.jpeg"*/, client->model_cache);
     player.entity.model.offset = (Vec3){0.0f, -1.0f, 0.0f};
 
+    
 
      if (!level_client_add_player(&client->level, client, &player, server_id)) {
         printf("add player to level failed!");
      }
 
+     camera_attach(&client->player_camera, &client->player->entity.position, &client->player->eye_offset);
 
+
+}
+
+void client_send_usercmd(const Client* client, const usercmd_t* usercmd) {
+    Packet_usercmd payload = {
+        .pckt_id = (packet_t)USERCMD,
+        .cmd = *usercmd
+    };
+    ENetPacket* packet = enet_packet_create(
+        &payload,
+        sizeof(payload),
+        0
+    );
+    enet_peer_send(client->server_peer, 1, packet);
+
+}
+
+
+void client_proccess_events(Client* client) {
+    Event_bus* bus = &client->bus;
+    Event event;
+
+    while(true) {
+        event = popEvent(bus);
+
+        if (event.eventType == SE_NONE) {
+            return;
+        }
+        //printf("event: %d ", event.eventType);
+
+        switch (event.eventType) {
+
+        case SE_NONE:
+            break;
+        case SE_ACTION:
+            proccess_action((actionType)event.value, client->player);
+            break;
+		case SE_KEY:
+			//key_event(level, event.value, event.value2, p);
+			break;
+		case SE_CHAR:
+			break;
+		case SE_MOUSE:
+			break;
+		case SE_CONSOLE:
+
+			break;
+		case SE_PACKET:
+            break;
+        default:
+            printf("bad event\n");
+        }
+
+        if (event.ptr) {
+			free(event.ptr);
+		}
+
+    }
 }

@@ -2,7 +2,9 @@
 
 
 Event_bus createBus(void) {
-	return (Event_bus){.head = 0, .tail = 0};
+	Event_bus bus;
+	memset(&bus, 0, sizeof(bus));
+	return bus;
 }
 
 

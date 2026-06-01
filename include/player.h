@@ -9,8 +9,6 @@
 
 typedef struct {
     Vec3 wish_dir;
-    Vec3 cam_forward;
-    Vec3 cam_right;
     float ground_acceleration_run;
     float ground_acceleration_walk;
     float ground_friction;
@@ -23,7 +21,7 @@ typedef struct {
     float walk_speed;
     float air_speed;
 
-    bool jump_queued;
+    bool can_jump;
     float jump_vel;
 
     bool slide_queued;
@@ -57,6 +55,8 @@ void player_guns_destroy(Player_guns* pg);
 typedef struct Player {
     Entity entity;
     Vec3 eye_offset; //how high the camera is placed over the centroid
+
+    Vec3 cam_forward;
 
     uint64_t unqid;
     uint32_t server_id;

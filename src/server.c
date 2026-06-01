@@ -215,7 +215,7 @@ void server_enet_poll(Server* s) {
                         // Packet_auth_full_sync handler.
                     }
 
-                    if (packet_type == (uint8_t)USERCMD_PACKET && event.packet->dataLength == sizeof(Packet_usercmd)) {
+                    if (packet_type == (uint8_t)USERCMD && event.packet->dataLength == sizeof(Packet_usercmd)) {
                         // Packet_usercmd handler.
                         /*
                         Relevant previous implementation:
@@ -224,7 +224,7 @@ void server_enet_poll(Server* s) {
                         int idx = hmgeti(s->level.player_map, player_id);
                         if (idx != -1) {
                             Player* p = &s->level.player_map[idx].value;
-                            p->movement.cam_forward = ucmd->cmd.angles;
+                            p->cam_forward = ucmd->cmd.angles;
                             p->movement.wish_dir = ucmd->cmd.wishdir;
                             Vec3 up = {0.0f, 1.0f, 0.0f};
                             Vec3 right = vec3_cross(&up, &ucmd->cmd.angles);

@@ -193,7 +193,7 @@ void level_server_process_shots(Level* level, Server* server, float dt) {
 
             //tracers
 
-            Vec3 dir = p->movement.cam_forward;
+            Vec3 dir = p->cam_forward;
             Vec3 source = p->entity.position;
             vec3_add_inplace(&source, &p->eye_offset);
 
@@ -240,7 +240,7 @@ void level_server_process_shots(Level* level, Server* server, float dt) {
 
                 //hit logic
 
-                p->movement.cam_forward = shot_dir;
+                p->cam_forward = shot_dir;
                 Player* hit = ray_check_player_collison(level, p, gun.range, SHOOT_RAY_STEP);
 
                 if (hit) {
@@ -335,7 +335,7 @@ void level_server_process_shots(Level* level, Server* server, float dt) {
                 }
             }
 
-            p->movement.cam_forward = original_dir;
+            p->cam_forward = original_dir;
         }*/
 
             
@@ -366,7 +366,7 @@ void level_server_process_shots(Level* level, Server* server, float dt) {
 
         //tracers
 
-        Vec3 dir = p->movement.cam_forward;
+        Vec3 dir = p->cam_forward;
         Vec3 source = p->entity.position;
         vec3_add_inplace(&source, &p->eye_offset);
 
@@ -413,7 +413,7 @@ void level_server_process_shots(Level* level, Server* server, float dt) {
 
             //hit logic
 
-            p->movement.cam_forward = shot_dir;
+            p->cam_forward = shot_dir;
             Player* hit = ray_check_player_collison(level, p, gun.range, SHOOT_RAY_STEP);
 
             if (hit) {
@@ -508,7 +508,7 @@ void level_server_process_shots(Level* level, Server* server, float dt) {
                 }
             }
 
-            p->movement.cam_forward = original_dir;
+            p->cam_forward = original_dir;
         }
     }
     */

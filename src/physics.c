@@ -77,9 +77,8 @@ void physics_step(Level* level, float dt) {
 
         ent->prev_position = ent->position;
 
-        physics_update_states(level, ent);
-
         if (is_state(ent, GROUNDED)) {
+            p->movement.can_jump = true;
             ent->high_y = ent->position.y;
 
             float horizonal_spd_mag = (ent->velocity.x * ent->velocity.x) + (ent->velocity.z * ent->velocity.z);
@@ -99,16 +98,9 @@ void physics_step(Level* level, float dt) {
                 ent->velocity.y = -((ground_normal.x * ent->velocity.x) + (ground_normal.z * ent->velocity.z)) / ground_normal.y;
             }
 
-            if(p->movement.jump_queued) {
-                p->movement.jump_queued = false;
-                float add_vel = p->movement.jump_vel - ent->velocity.y;
-                if (add_vel > 0.0f) {
-                    ent->velocity.y += p->movement.jump_vel;
-                }
-            }
-
 
         } else if (is_state(ent, IN_AIR)) {
+            p->movement.can_jump = false;
             Vec3 steep_normal = {0.0f, 1.0f, 0.0f};
             bool touching_steep = check_map_touching(level, ent, ent->radius + 0.02f, &steep_normal);
 
@@ -167,6 +159,7 @@ void physics_step(Level* level, float dt) {
         ent->force = (Vec3){0.0f, 0.0f, 0.0f};
 
         //check_dead(ent);
+        physics_update_states(level, ent);
     }
 
     for (int i = 0; i < hmlen(level->ent_map); i++) {
@@ -272,13 +265,6 @@ void physics_step_player(Level* level, Player* p, float dt) {
             ent->velocity.y = -((ground_normal.x * ent->velocity.x) + (ground_normal.z * ent->velocity.z)) / ground_normal.y;
         }
 
-        if (p->movement.jump_queued) {
-            p->movement.jump_queued = false;
-            float add_vel = p->movement.jump_vel - ent->velocity.y;
-            if (add_vel > 0.0f) {
-                ent->velocity.y += p->movement.jump_vel;
-            }
-        }
 
     } else if (is_state(ent, IN_AIR)) {
         Vec3 steep_normal = {0.0f, 1.0f, 0.0f};
@@ -374,14 +360,12 @@ void physics_p_ground_movement(Player* p, float dt) {
     float fric = is_state(&p->entity, SLIDING)? m->slide_friction : m->ground_friction;
 
 
-    if (!p->movement.jump_queued) {
-        physics_apply_friction(ent, fric, dt);
-    }
+    physics_apply_friction(ent, fric, dt);
 
     Vec3 wishdir;
     float spd = 0.0f;
     if (is_state(ent, SLIDING)) { 
-        wishdir = (Vec3){m->wish_dir.x + p->movement.cam_forward.x, 0.0f, m->wish_dir.z + p->movement.cam_forward.z};
+        wishdir = (Vec3){m->wish_dir.x + p->cam_forward.x, 0.0f, m->wish_dir.z + p->cam_forward.z};
         spd = m->air_speed;
         if (spd > m->air_speed_cap) {spd = m->air_speed_cap;}
     } else {
@@ -515,7 +499,7 @@ Player* ray_check_player_collison(Level* level, Player* shooter, float max_ray_l
         return NULL;
     }
 
-    Vec3 dir = shooter->movement.cam_forward;
+    Vec3 dir = shooter->cam_forward;
     if (vec3_mag_squared(&dir) <= EPSILON) {
         return NULL;
     }
@@ -714,8 +698,7 @@ void handle_dash_client(Client* c, Player* p, float dt) {
     sound_play_id(&c->sound, SOUND_DASH, 0.2f);
 
     p->entity.position.y += 0.01f;
-    p->movement.jump_queued = true;
-    Vec3 wishdir = p->movement.cam_forward;
+    Vec3 wishdir = p->cam_forward;
     wishdir = vec3_normalize(&wishdir);
     Vec3 wishflat = wishdir;
     wishflat.y = 0.0f;

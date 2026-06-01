@@ -21,17 +21,10 @@ typedef enum {
     ADD_SOUND,
     AUTH_STATE,
     AUTH_FULL_SYNC,
-    USERCMD_PACKET
+    USERCMD
 } packet_t;
 
 
-typedef enum {
-    DASH = 0,
-    SHOOT,
-    JUMP,
-    SLIDE
-
-} actions; //move to events
 
 
 typedef struct {

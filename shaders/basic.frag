@@ -29,8 +29,8 @@ void main()
     vec3 L = normalize(-lightDir); // negate if lightDir is "toward scene"
 
     float lightIntensity = max(dot(N, L), 0.0);
-    float ambient = 0.40;
-    float diffuse = 0.60 * lightIntensity;
+    float ambient = 0.50;
+    float diffuse = 0.50 * lightIntensity;
 
     vec3 litColor = baseColor * (ambient + diffuse);
     FragColor = vec4(litColor, 1.0);
