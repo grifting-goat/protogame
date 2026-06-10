@@ -117,14 +117,7 @@ typedef struct {
 
 typedef struct {
     uint8_t pckt_id;
-
-    Vec3 position;
-    Vec3 velocity;
-
-    float health;
-
-    uint32_t state;
-
+    userstate_t state;
 } Packet_auth_state;
 
 

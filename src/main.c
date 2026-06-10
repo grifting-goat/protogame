@@ -70,13 +70,17 @@ int main(int argc, char* argv[]) {
     srand((unsigned int)time(NULL));
     signal(SIGINT, handle_sigint);
 
-    Server server = {0};
+    Server* server = (Server*)calloc(1, sizeof(Server));
     Client client = {0};
 
+    if (!server) {
+        fprintf(stderr, "Failed to allocate server.\n");
+        return 1;
+    }
 
     if (s) {
-        server_startup(&server);
-        server_tid = CreateThread(NULL, 0, server_thread, &server, 0, NULL);
+        server_startup(server);
+        server_tid = CreateThread(NULL, 0, server_thread, server, 0, NULL);
     }
 
     if (c) {
@@ -100,12 +104,14 @@ int main(int argc, char* argv[]) {
 
 
     if (s) {
-        server_close(&server);
+        server_close(server);
     }
 
     if (c) {
         client_close(&client);
     }
+
+    free(server);
 
     return 0;
 }

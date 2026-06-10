@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "engine_math.h"
+#include "unified.h"
 
 
 
@@ -26,7 +27,7 @@ void physics_init(Level* level);
 
 void physics_step(Level* level, float dt);
 
-void physics_step_player(Level* level, Player* p, float dt);
+userstate_t physics_step_state(Level* level, userstate_t in_state, usercmd_t cmd, float dt);
 
 void physics_update_states(Level* level, Entity* ent);
 

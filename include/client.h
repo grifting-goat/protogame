@@ -14,7 +14,7 @@
 
 #include "unified.h"
 
-#define INPUT_BUFFER_SIZE 512
+
 
 
 typedef struct {
@@ -68,6 +68,9 @@ typedef struct Client {
 
     usercmd_t input_buffer[INPUT_BUFFER_SIZE];
     uint32_t input_buffer_idx;
+
+    userstate_t state_buffer[STATE_BUFFER_SIZE];
+    uint32_t state_buffer_idx;
 
     uint32_t actions;
 

@@ -159,7 +159,7 @@ bool level_client_add_player(Level* level, Client* client, Player* new_player, c
 // move this player creation out of there, just pass a created player like client function does
 
 bool level_server_add_player(Level* level, Server* server, const uint64_t uqid, const uint32_t server_id) {
-    if (!level || !level->initialized || server) return false;
+    if (!level || !level->initialized || !server) return false;
 
     Player new_player = player_create();
     new_player.unqid = uqid;

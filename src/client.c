@@ -31,11 +31,14 @@ void update_tracers(Client* client, const float dt);
 void reload_animation(Client* c, float dt);
 void aiming_animation(Client* client, float dt);
 void client_shoot_event(Client* client);
-void client_proccess_events(Client* client);
+void client_process_events(Client* client);
 
 void client_send_usercmd(const Client* client, const usercmd_t* usercmd);
 
 void client_freecam(Client* client, const float dt);
+void client_update_snapshots(Client* client);
+
+void client_reconcile_kin(Client* client, userstate_t* server_state);
 
 
 
@@ -132,7 +135,6 @@ bool client_startup(Client *client, const char* host, uint32_t port) {
 
     client->player = NULL;
     client->established_server_connnection = false;
-    client->input_buffer_idx = 0;
 
     camera_init(&client->player_camera);
     client->player_camera.mode = 1;
@@ -235,6 +237,10 @@ bool client_run(Client *client) {
     t->accumulator += dt;
     if (t->accumulator > t->max_accumulator) {t->accumulator = t->max_accumulator;}
 
+    // poll network before the tick loop so any reconcile snap happens
+    // before physics runs this frame, not after
+    client_enet_poll(client);
+
     /*
     
     main tick loop
@@ -242,14 +248,21 @@ bool client_run(Client *client) {
     */
 
     while (t->accumulator >= t->tick_time) {
+        client_update_snapshots(client);
+
         usercmd_t cmd = build_usercmd(client);
 
-        client_proccess_events(client);
+        client_process_events(client);
 
         level_client_update(&client->level, client, t->tick_time); // updates the positions // check collisions // advances timers
 
+        client->input_buffer[t->tick % INPUT_BUFFER_SIZE] = cmd;
         client_send_usercmd(client, &cmd);
         client->actions = 0;
+
+        userstate_t state = get_userstate(client->player, t->tick);
+        client->state_buffer[t->tick % STATE_BUFFER_SIZE] = state;
+
 
         t->accumulator -= t->tick_time;
         t->tick++;
@@ -318,7 +331,6 @@ bool client_run(Client *client) {
         t->frame_count = 0;
     }
 
-    client_enet_poll(client);
 
     if (client->player) {
 
@@ -391,13 +403,6 @@ bool client_run(Client *client) {
 
     float a = t->accumulator / t->tick_time;
     client_render(client, a);
-
-    for (int i = 0; i < hmlen(client->level.player_map); i++) {
-        client->level.player_map[i].value.entity.prev_position = client->level.player_map[i].value.entity.position;
-    }
-    for (int i = 0; i < hmlen(client->level.ent_map); i++) {
-        client->level.ent_map[i].value.prev_position = client->level.ent_map[i].value.position;
-    }
 
     return true;
 }
@@ -593,6 +598,7 @@ void client_input_actions(Client* client) {
 
     if (input_key_pressed(player_input, SDL_SCANCODE_Y)) {
         freecam = true;
+        dir = (Vec3){0.0f,0.0f,0.0f};
     }
 
     //client->player->movement.dash_queued |= input_key_pressed(player_input, SDL_SCANCODE_R);
@@ -802,6 +808,29 @@ void client_enet_poll(Client* client) {
                         printf("Tick: %u\nTime: %f\n", client->time.tick, client->time.server_time);
 
                         client_add_player(client, client->server_id, NULL);
+
+                        Packet_add_player pack2 = {
+                            .pckt_id = (uint8_t)ADD_PLAYER,
+                            .server_id = client->server_id,
+                            .unique_id = client->unique_id
+                        };
+
+                        ENetPacket* packet = enet_packet_create(
+                            &pack2,
+                            sizeof(pack),
+                            ENET_PACKET_FLAG_RELIABLE
+                        );
+                        enet_peer_send(client->server_peer, 0, packet);
+
+                        break;
+                    }
+
+                    if (packet_type == (packet_t)AUTH_STATE && event.packet->dataLength >= sizeof(Packet_auth_state)) {
+                        const Packet_auth_state* pack = (const Packet_auth_state*)event.packet->data;
+                        if (client->player) {
+                            userstate_t server_state = pack->state;
+                            client_reconcile_kin(client, &server_state);
+                        }
                         break;
                     }
 
@@ -907,6 +936,15 @@ void hit_overlay_animation(Client* client, const float dt) {
 
 
 
+void client_update_snapshots(Client* client) {
+    for (int i = 0; i < hmlen(client->level.player_map); i++) {
+        client->level.player_map[i].value.entity.prev_position = client->level.player_map[i].value.entity.position;
+    }
+    for (int i = 0; i < hmlen(client->level.ent_map); i++) {
+        client->level.ent_map[i].value.prev_position = client->level.ent_map[i].value.position;
+    }
+}
+
 void client_freecam(Client* client, const float dt) {
     InputHandle *player_input = &client->player_input;
     Camera* player_camera = &client->player_camera;
@@ -924,6 +962,7 @@ void client_freecam(Client* client, const float dt) {
 
     if (input_key_pressed(player_input, SDL_SCANCODE_Y)) {
         freecam = false;
+        player_camera->angles = client->player->cam_forward;
     }
 
     Vec3 forward = camera_forward(player_camera);
@@ -941,7 +980,9 @@ void client_freecam(Client* client, const float dt) {
 
     move_dir = vec3_normalize(&move_dir);           
 
-    vec3_multiply_inplace(&move_dir, 10.0f * dt );
+    float speed = player_input->kb_state[SDL_SCANCODE_LSHIFT] ? 30.0f : 8.0f;
+
+    vec3_multiply_inplace(&move_dir, speed * dt );
     vec3_add_inplace(&player_camera->static_position, &move_dir);
 
 }
@@ -982,7 +1023,7 @@ usercmd_t build_usercmd(const Client* c) {
 
     cmd.tick = c->time.tick;
     cmd.angles = camera_forward(&c->player_camera);
-    cmd.buttons = c->actions;
+    cmd.actions = c->actions;
     cmd.gun_idx = c->player->gun_idx;
     cmd.wishdir = c->player->movement.wish_dir;
 
@@ -1034,7 +1075,12 @@ void client_add_player(Client* client, const uint32_t server_id, const userstate
         player.entity.health = initial->health;
     }
 
-    player.entity.model = temp_create_model("resources/bones.obj", NULL /*"resources/red.jpeg"*/, client->model_cache);
+    player.entity.model = temp_create_model(
+        "resources/bones.obj", 
+        NULL, //"resources/red.jpeg", 
+        client->model_cache
+    );
+
     player.entity.model.offset = (Vec3){0.0f, -1.0f, 0.0f};
 
     
@@ -1063,7 +1109,7 @@ void client_send_usercmd(const Client* client, const usercmd_t* usercmd) {
 }
 
 
-void client_proccess_events(Client* client) {
+void client_process_events(Client* client) {
     Event_bus* bus = &client->bus;
     Event event;
 
@@ -1080,7 +1126,7 @@ void client_proccess_events(Client* client) {
         case SE_NONE:
             break;
         case SE_ACTION:
-            proccess_action((actionType)event.value, client->player);
+            process_action((actionType)event.value, client->player);
             break;
 		case SE_KEY:
 			//key_event(level, event.value, event.value2, p);
@@ -1102,5 +1148,39 @@ void client_proccess_events(Client* client) {
 			free(event.ptr);
 		}
 
+    }
+}
+
+
+void client_reconcile_kin(Client* client, userstate_t* server_state) {
+    if (!client->player) { return; }
+
+    Vec3 diff = vec3_subtract(&client->player->entity.position, &server_state->position);
+    float err = vec3_mag(&diff);
+    if (err <= 1.0f) { return; }
+
+    int server_tick  = server_state->tick;
+    int current_tick = (int)client->time.tick;
+    int replay_ticks = current_tick - server_tick;
+
+    client->state_buffer[server_tick % STATE_BUFFER_SIZE] = *server_state;
+
+    if (replay_ticks > 0 && replay_ticks < STATE_BUFFER_SIZE) {
+        for (int i = server_tick; i < current_tick; i++) {
+            userstate_t next = physics_step_state(
+                &client->level,
+                client->state_buffer[i % STATE_BUFFER_SIZE],
+                client->input_buffer[i % INPUT_BUFFER_SIZE],
+                client->time.tick_time
+            );
+            client->state_buffer[(i + 1) % STATE_BUFFER_SIZE] = next;
+        }
+        userstate_t* replayed = &client->state_buffer[current_tick % STATE_BUFFER_SIZE];
+        apply_userstate(client->player, replayed);
+        client->player->entity.prev_position = replayed->position;
+    } else {
+        // server tick too stale to replay — just snap
+        apply_userstate(client->player, server_state);
+        client->player->entity.prev_position = server_state->position;
     }
 }

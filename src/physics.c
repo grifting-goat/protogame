@@ -75,8 +75,6 @@ void physics_step(Level* level, float dt) {
         Player* p = &level->player_map[i].value;
         Entity* ent = &level->player_map[i].value.entity;
 
-        ent->prev_position = ent->position;
-
         if (is_state(ent, GROUNDED)) {
             p->movement.can_jump = true;
             ent->high_y = ent->position.y;
@@ -236,86 +234,95 @@ void physics_step(Level* level, float dt) {
 
 }
 
-void physics_step_player(Level* level, Player* p, float dt) {
+userstate_t physics_step_state(Level* level, userstate_t in_state, usercmd_t cmd, float dt) {
     PhysicsWorld* world = &level->physics;
-    Entity* ent = &p->entity;
 
-    ent->prev_position = ent->position;
-    ent->force = (Vec3){0.0f, 0.0f, 0.0f};
+    Entity ent = {0};
+    ent.position     = in_state.position;
+    ent.velocity     = in_state.velocity;
+    ent.health       = in_state.health;
+    ent.states       = in_state.state;
+    ent.acceleration = cmd.wishdir;
+    ent.mass         = 70.0f;
+    ent.radius       = 1.0f;
+    ent.high_y       = in_state.position.y;
+    ent.force        = (Vec3){0.0f, 0.0f, 0.0f};
 
-    physics_update_states(level, ent);
+    physics_update_states(level, &ent);
 
-    if (is_state(ent, GROUNDED)) {
-        ent->high_y = ent->position.y;
+    if (is_state(&ent, GROUNDED)) {
+        ent.high_y = ent.position.y;
 
-        float horizonal_spd_mag = (ent->velocity.x * ent->velocity.x) + (ent->velocity.z * ent->velocity.z);
-        if (p->movement.slide_queued && (horizonal_spd_mag > ((p->movement.walk_speed * p->movement.walk_speed)*0.8f))) {
-            set_state(ent, SLIDING);
-        } else {
-            clear_state(ent, SLIDING);
-        }
-
-        physics_p_ground_movement(p, dt);
+        physics_e_ground_movement(&ent, dt);
 
         float ground_y = 0.0f;
         Vec3 ground_normal = {0.0f, 1.0f, 0.0f};
-        physics_get_height_and_slope(level, &ent->position, &ground_y, &ground_normal);
+        physics_get_height_and_slope(level, &ent.position, &ground_y, &ground_normal);
 
         if (ground_normal.y > EPSILON) {
-            ent->velocity.y = -((ground_normal.x * ent->velocity.x) + (ground_normal.z * ent->velocity.z)) / ground_normal.y;
+            ent.velocity.y = -((ground_normal.x * ent.velocity.x) + (ground_normal.z * ent.velocity.z)) / ground_normal.y;
         }
 
-
-    } else if (is_state(ent, IN_AIR)) {
+    } else if (is_state(&ent, IN_AIR)) {
         Vec3 steep_normal = {0.0f, 1.0f, 0.0f};
-        bool touching_steep = check_map_touching(level, ent, ent->radius + 0.02f, &steep_normal);
+        bool touching_steep = check_map_touching(level, &ent, ent.radius + 0.02f, &steep_normal);
 
         if (touching_steep) {
             float g_dot_n = vec3_dot(&world->gravity, &steep_normal);
             Vec3 g_normal = vec3_multiply(&steep_normal, g_dot_n);
             Vec3 g_tangent = vec3_subtract(&world->gravity, &g_normal);
-            Vec3 slope_force = vec3_multiply(&g_tangent, (float)ent->mass);
-            vec3_add_inplace(&ent->force, &slope_force);
+            Vec3 slope_force = vec3_multiply(&g_tangent, ent.mass);
+            vec3_add_inplace(&ent.force, &slope_force);
 
-            Vec3 clipped_vel = ent->velocity;
-            physics_clip_velocity(&ent->velocity, &steep_normal, &clipped_vel, 1.0f);
-            ent->velocity = clipped_vel;
+            Vec3 clipped_vel = ent.velocity;
+            physics_clip_velocity(&ent.velocity, &steep_normal, &clipped_vel, 1.0f);
+            ent.velocity = clipped_vel;
         } else {
-            Vec3 gravity_force = vec3_multiply(&world->gravity, (float)ent->mass);
-            vec3_add_inplace(&ent->force, &gravity_force);
+            Vec3 gravity_force = vec3_multiply(&world->gravity, ent.mass);
+            vec3_add_inplace(&ent.force, &gravity_force);
         }
 
-        physics_p_air_movement(p, dt);
+        physics_e_air_movement(&ent, dt);
 
-        ent->high_y = (ent->position.y > ent->high_y) ? ent->position.y : ent->high_y;
+        ent.high_y = (ent.position.y > ent.high_y) ? ent.position.y : ent.high_y;
     }
 
-    physics_funny_bounds_check(ent);
+    physics_funny_bounds_check(&ent);
 
-    Vec3 delta_vel = vec3_multiply(&ent->force, dt / (float)ent->mass);
-    vec3_add_inplace(&ent->velocity, &delta_vel);
+    Vec3 delta_vel = vec3_multiply(&ent.force, dt / ent.mass);
+    vec3_add_inplace(&ent.velocity, &delta_vel);
 
-    Vec3 delta_pos = vec3_multiply(&ent->velocity, dt);
-    vec3_add_inplace(&ent->position, &delta_pos);
+    Vec3 delta_pos = vec3_multiply(&ent.velocity, dt);
+    vec3_add_inplace(&ent.position, &delta_pos);
 
-    float y_level = physics_sample_ground_height(level, &ent->position);
-    float min_y = ent->radius + y_level;
-    if (ent->position.y < min_y) {
-        ent->position.y = min_y;
+    float y_level = physics_sample_ground_height(level, &ent.position);
+    float min_y = ent.radius + y_level;
+    if (ent.position.y < min_y) {
+        ent.position.y = min_y;
 
         Vec3 touch_normal = {0.0f, 1.0f, 0.0f};
-        bool touching_steep2 = check_map_touching(level, ent, ent->radius + 0.02f, &touch_normal);
-        if (!touching_steep2 && ent->velocity.y < 0.0f) {
-            ent->velocity.y = 0.0f;
+        bool touching_steep2 = check_map_touching(level, &ent, ent.radius + 0.02f, &touch_normal);
+        if (!touching_steep2 && ent.velocity.y < 0.0f) {
+            ent.velocity.y = 0.0f;
         }
     }
 
-    if (fabsf(ent->velocity.x) < EPSILON) ent->velocity.x = 0.0f;
-    if (fabsf(ent->velocity.y) < EPSILON) ent->velocity.y = 0.0f;
-    if (fabsf(ent->velocity.z) < EPSILON) ent->velocity.z = 0.0f;
+    if (fabsf(ent.velocity.x) < EPSILON) ent.velocity.x = 0.0f;
+    if (fabsf(ent.velocity.y) < EPSILON) ent.velocity.y = 0.0f;
+    if (fabsf(ent.velocity.z) < EPSILON) ent.velocity.z = 0.0f;
 
-    physics_update_states(level, ent);
-    ent->force = (Vec3){0.0f, 0.0f, 0.0f};
+    physics_update_states(level, &ent);
+    ent.force = (Vec3){0.0f, 0.0f, 0.0f};
+
+    userstate_t out = {0};
+    out.tick        = in_state.tick + 1;
+    out.position    = ent.position;
+    out.velocity    = ent.velocity;
+    out.health      = ent.health;
+    out.state       = ent.states;
+    out.cam_forward = in_state.cam_forward;
+    out.gun_idx     = cmd.gun_idx;
+    return out;
 }
 
 void physics_update_states(Level* level, Entity* ent) {

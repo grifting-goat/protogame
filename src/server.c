@@ -10,9 +10,14 @@ const char* server_err_tag = "Server Error: ";
 #define SERVER_ERR(fmt, ...) fprintf(stderr, "%s" fmt, server_err_tag, ##__VA_ARGS__)
 
 
+void server_add_client(Server* server, uint32_t server_id, uint32_t uqid, char* name);
+static void server_apply_client_inputs(Server* s);
+
+
 void server_enet_poll(Server* s);
 bool server_enet_startup(Server* server, uint16_t port);
 void server_disconnect_peers(Server* server);
+void server_send_auth_states(Server* server);
 
 bool server_startup(Server* server){
     if (!server) return false;
@@ -33,12 +38,14 @@ bool server_startup(Server* server){
     t->fps_time_accum = 0;
     t->frame_count = 0;
 
+
     if (!level_create(&server->level)) return false;
 
     server->port = 7777;
     if (!server_enet_startup(server, server->port)) return false;
 
     server->initialized = true;
+    server->clients_connected = 0;
 
     SERVER_LOG("Server started successfully!");
     return true;
@@ -73,18 +80,21 @@ bool server_run(Server* server) {
     if (t->accumulator > t->max_accumulator) {t->accumulator = t->max_accumulator;}
 
     //main tick loop
+    server_enet_poll(server);
+
     while (t->accumulator >= t->tick_time) {
 
-        level_server_update(&server->level, server, dt); // updates the positions // check collisions // advances timers
+        server_apply_client_inputs(server);
+        level_server_update(&server->level, server, t->tick_time); // updates the positions // check collisions // advances timers
 
+
+        server_send_auth_states(server);
         t->accumulator -= t->tick_time;
         t->tick++;
+
     }
     
         
-    server_enet_poll(server);
-
-
     return true;
 }
 
@@ -154,19 +164,9 @@ void server_enet_poll(Server* s) {
                     const uint8_t* data = (const uint8_t*)event.packet->data;
                     const uint8_t packet_type = data[0];
 
-                    if (packet_type == (uint8_t)ON_CONNECT) {
-                        // Packet_on_connect handler (server usually sends this type).
-                    }
-
                     if (packet_type == (uint8_t)ADD_PLAYER) {
-                        // Packet_add_player / Packet_client_ack handler.
-                        /*
-                        Relevant previous implementation:
-                        - parse Packet_client_ack
-                        - send all existing players to new peer
-                        - level_add_player(...)
-                        - broadcast Packet_player(PCKT_ADD_PLAYER)
-                        */
+                        const Packet_add_player* pack = (const Packet_add_player*)event.packet->data;
+                        server_add_client(s, pack->server_id, pack->unique_id, NULL);
                     }
 
                     if (packet_type == (uint8_t)REMOVE_PLAYER) {
@@ -216,34 +216,15 @@ void server_enet_poll(Server* s) {
                     }
 
                     if (packet_type == (uint8_t)USERCMD && event.packet->dataLength == sizeof(Packet_usercmd)) {
-                        // Packet_usercmd handler.
-                        /*
-                        Relevant previous implementation:
                         const Packet_usercmd* ucmd = (const Packet_usercmd*)event.packet->data;
-                        uint32_t player_id = (uint32_t)event.peer->incomingPeerID;
-                        int idx = hmgeti(s->level.player_map, player_id);
-                        if (idx != -1) {
-                            Player* p = &s->level.player_map[idx].value;
-                            p->cam_forward = ucmd->cmd.angles;
-                            p->movement.wish_dir = ucmd->cmd.wishdir;
-                            Vec3 up = {0.0f, 1.0f, 0.0f};
-                            Vec3 right = vec3_cross(&up, &ucmd->cmd.angles);
-                            if (vec3_mag_squared(&right) > 0.0f) {
-                                vec3_normalize_inplace(&right);
-                            } else {
-                                right = (Vec3){1.0f, 0.0f, 0.0f};
-                            }
-                            p->movement.cam_right = right;
-                            p->gun_idx = ucmd->cmd.gun_idx;
-                            p->movement.jump_queued = (ucmd->cmd.buttons & (1U << JUMP)) != 0;
-                            if (ucmd->cmd.buttons & (1U << DASH)) {
-                                sys_queueEvent(&p->event_bus, ucmd->cmd.tick, SE_KEY, DASH, 1, 0, NULL);
-                            }
-                            if (ucmd->cmd.buttons & (1U << SHOOT)) {
-                                sys_queueEvent(&p->event_bus, ucmd->cmd.tick, SE_KEY, SHOOT, 1, 0, NULL);
+                        uint32_t peer_id = (uint32_t)event.peer->incomingPeerID;
+
+                        for (uint32_t i = 0; i < s->clients_connected; i++) {
+                            if (s->clients[i].peer_id == peer_id) {
+                                s->clients[i].latest_cmd = ucmd->cmd;
+                                break;
                             }
                         }
-                        */
                     }
 
                 }
@@ -290,6 +271,37 @@ void server_close(Server* server) {
 
 
 //only the server can do these
+
+void server_send_auth_states(Server* server) {
+    if (!server) { return; }
+
+    for (uint32_t i = 0; i < server->clients_connected; i++) {
+        client_t* ct = &server->clients[i];
+
+        uint32_t peer_id = (uint32_t)ct->peer_id;
+        int idx = hmgeti(server->level.player_map, peer_id);
+        if (idx == -1) { continue; }
+
+        const Player* p = &server->level.player_map[idx].value;
+
+        userstate_t state = get_userstate(p, server->time.tick);
+        Packet_auth_state payload = {
+            .pckt_id = (uint8_t)AUTH_STATE,
+            .state   = state,
+        };
+
+        ENetPeer* peer = &server->e_server->peers[peer_id];
+        if (peer->state != ENET_PEER_STATE_CONNECTED) { continue; }
+
+        ENetPacket* packet = enet_packet_create(
+            &payload,
+            sizeof(payload),
+            ENET_PACKET_FLAG_UNSEQUENCED
+        );
+        if (packet) { enet_peer_send(peer, 1, packet); }
+    }
+}
+
 
 void server_broadcast_sound(Server* server, uint32_t server_id, bool client_side, SoundID id, Vec3 pos, float vol, float rang) {
 
@@ -340,6 +352,66 @@ void server_disconnect_peers(Server* server) {
         }
     }
 }
+
+
+void server_add_client(Server* server, uint32_t server_id, uint32_t uqid, char* name) {
+    if (!server) {return;}
+    if (!name) {
+        char str[10] = {0};
+        name = "Player_" + snprintf(str, sizeof(str), "%u", server_id);
+    }
+
+    level_server_add_player(&server->level, server, uqid, server_id);
+
+    client_t client = {
+        .name = name,
+        .state_buffer_idx = 0,
+        .input_buffer_idx = 0,
+        .peer_id = server_id,
+        .bus = createBus()
+    };
+
+    push_client_buffer(server->clients, &server->clients_connected, MAX_CLIENTS, &client);
+
+    SERVER_LOG("client added.");
+
+    //this works till people start unjoining
+}
+
+void server_handle_events(Server* server) {
+    for (int i = 0; i < server->clients_connected; i++) {
+        client_t client = server->clients[i];
+
+        process_events(&client.bus, client.player);
+    }
+}
+
+static void server_apply_client_inputs(Server* s) {
+    for (uint32_t i = 0; i < s->clients_connected; i++) {
+        client_t* ct = &s->clients[i];
+        usercmd_t* cmd = &ct->latest_cmd;
+
+        uint32_t peer_id = (uint32_t)ct->peer_id;
+        int idx = hmgeti(s->level.player_map, peer_id);
+        if (idx == -1) continue;
+
+        Player* p = &s->level.player_map[idx].value;
+
+        p->cam_forward = cmd->angles;
+        p->movement.wish_dir = cmd->wishdir;
+        p->gun_idx = cmd->gun_idx;
+
+        if (cmd->actions & (1U << JUMP)) {
+            handle_jump(p);
+        }
+        if (cmd->actions & (1U << DASH)) {
+            handle_dash(p);
+        }
+    }
+}
+
+
+
 
 
 

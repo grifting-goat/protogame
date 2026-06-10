@@ -11,8 +11,8 @@ void entity_create_default(Entity *ent) {
     ent->radius = 1.0f;
     ent->timed = false;
     ent->life_time = 0.0f;
-
     ent->high_y = 0;
+    ent->states = 0;
 
 
 }

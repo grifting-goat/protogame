@@ -26,6 +26,10 @@ typedef struct Server {
     uint16_t port;
 
     Timing time;
+
+
+    client_t clients[MAX_CLIENTS];
+    uint32_t clients_connected;
     
 } Server;
 
