@@ -44,10 +44,9 @@ bool window_create(Window* win, const char* title, int width, int height, bool f
         return false;
     }
 
-    /*
     if (!SDL_GL_SetSwapInterval(0)) {
         SDL_Log("Warning: could not disable V-Sync: %s", SDL_GetError());
-    } */
+    }
 
     if (!overlay_init("UncialAntiqua-Regular.ttf", 30)) {
         SDL_Log("Could not initialize SDL_ttf overlay font: %s", SDL_GetError());
